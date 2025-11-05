@@ -216,3 +216,6 @@ __marimo__/
 .streamlit/secrets.toml
 .ds_stire
 .idea
+.vscode
+libfreenect2
+octomap
