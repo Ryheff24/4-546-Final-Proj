@@ -40,7 +40,7 @@ def create(points, grid_resolution=0.02, z_min_threshold=1.45, z_max_threshold=1
     return occupancy_grid, (x_min, x_max, y_min, y_max)
 
 
-def printgrid(occupancy_grid, extent):
+def printgrid(occupancy_grid, extent, name):
     plt.figure(figsize=(10, 10))
     plt.imshow(occupancy_grid, cmap='binary', origin='lower', extent=extent)
     plt.xlabel('X (meters)')
@@ -48,6 +48,7 @@ def printgrid(occupancy_grid, extent):
     plt.title('2D Occupancy Grid(Black is Occupied)')
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
+    plt.savefig(f"{name}.png")
     plt.show()
 
 def main():
@@ -60,9 +61,10 @@ def main():
         z_max_threshold=1.25
     )
 
+    if save: np.save('person.npy', occupancy_grid)
 
-    printgrid(occupancy_grid, extent)
-    
+    printgrid(occupancy_grid, extent, "Person")
+
     # z_min_threshold=1.1,
     # z_max_threshold=1.5
     points = loadPointCloud("table.txt", view=False)
@@ -75,9 +77,9 @@ def main():
     )
 
 
-    printgrid(occupancy_grid, extent)
+    printgrid(occupancy_grid, extent, "Table")
     
-    if save: np.save('occupancy_grid.npy', occupancy_grid)
+    if save: np.save('table.npy', occupancy_grid)
     
 if __name__ == "__main__":
     main()
