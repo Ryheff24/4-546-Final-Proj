@@ -41,6 +41,10 @@ class harderEnv():
         # action is a fixed  array of size 400 with an int of the following:
         # 0: up, 1: down, 2: left, 3: right, 4: end
         # first find the end and slice the action array
+        # episode only ends when 4 is hit or max steps reached
+        # dont accumulate penalties for hitting walls/obstacles
+        # if the goal is hit but the episode isnt ended, dont reward success
+        # 
 
         for i, act in enumerate(actions):
             if act == 4:
@@ -92,7 +96,6 @@ class harderEnv():
                     if self.agent_pos == self.goal:
                         # if this move lands in the goal
                         goalhit = True
-   
                         
             elif action == 2:
                 #left
@@ -126,10 +129,13 @@ class harderEnv():
                         # if this move lands in the goal
                         goalhit = True
             elif action == 4:
+                # goal is hit
                 pass
             
         if self.current_step >= self.max_steps:
             truncated = True
+        # grid needs to be nexts frame from kinect
+        # 
         return self.grid, reward, terminated, truncated, {}
         
     def reset(self):
