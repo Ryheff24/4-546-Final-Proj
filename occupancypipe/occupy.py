@@ -310,11 +310,7 @@ if __name__ == "__main__":
     
     frame = kinect.loadFrame("occupancypipe/frames/calibration_frame.npy", type='npy', view=False)
     kinect.calibrate(frame)
-    
-    # kinect.frameto2d(save=False, points=frame)
-    
-    print("Creating 2D Occupancy Grid from Frame...")
-    time.sleep(3)
+
     
     
     #     # print("Taking Frame...")

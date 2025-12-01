@@ -5,72 +5,57 @@ from gymnasium import spaces
 import numpy as np
 import matplotlib.pyplot as plt
 import random
-
-def printgrid(occupancy_grid, extent, name):
-    plt.figure(figsize=(10, 10))
-    plt.imshow(occupancy_grid, cmap='binary', origin='upper', extent=extent)
-    plt.xlabel('X (meters)')
-    plt.ylabel('Y (meters)')
-    plt.title('2D Occupancy Grid(Black is Occupied)')
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(f"{name}.png")
-    plt.show()
-
-
-def denoise(occupancy_grid):
-    # this needs to be more efficient if its live
-    # for every point, if none of its neighbors are occupied set it to unoccupied
-    for x in range(1, occupancy_grid.shape[0]-1):
-        for y in range(1, occupancy_grid.shape[1]-1):
-            if occupancy_grid[x, y] == 1:
-                z = np.sum(occupancy_grid[x-1:x+2, y-1:y+2])
-                if z <= 1:
-                    occupancy_grid[x, y] = 0
-    return occupancy_grid
+from occupy import Kinect
 
 class harderEnv():
     
     def __init__(self, filename, max_steps=1000, obstacles=5):
-        self.start_grid = np.zeros((200, 200), dtype=np.uint8)
+        self.kinect = Kinect()
+        frame = self.kinect.loadFrame("occupancypipe/frames/calibration_frame.npy", type='npy', view=False)
+        self.kinect.calibrate(frame)
+        video = self.kinect.loadVideo("occupancypipe/videos/video_9489441.npy")
+        frames, extent = self.kinect.createVideo(video)
+        # self.kinect.videoPlayback(frames, extent=extent)
+        
+        self.start_grid = frames[0]
         self.size = self.start_grid.shape
         self.grid = self.start_grid.copy()
         self.max_steps = min(max_steps, 1000)
         self.current_step = 0
+        self.extent = extent
         self.observation_space = spaces.Box(low=0, high=1, shape=self.start_grid.shape, dtype=np.uint8)
+        
         self.action_space = spaces.Discrete(4)  #
+        
         self.start = (0, self.grid.shape[0]//2)  # starting point
-        self.grid[self.start] = 2 
         self.agent_pos = self.start
         self.goal = (self.grid.shape[0]-1, self.start_grid.shape[0]//2) # goal point
+        self.grid[self.start] = 2 
         self.grid[self.goal] = 2 
-        # (x,y, speed,(x_size, y_size))
-        for i in range(obstacles):
-            size = (random.randint(2, 20), random.randint(2, 20))
-            x, y = (10 , 5)
-            speed = random.randint(1, 5)
-            
-        self.obstacles = [(random.randint(0, self.grid.shape[0]), self.start_grid.shape[1]+i ,random.randint(1, 5), (random.randint(2, 20), random.randint(2, 20))) for i in range(obstacles)]
-        self.spawninterval = 10
-        print(self.obstacles)
-        
-        # self.path = np.zeros_like(self.grid)
-        # printgrid(self.grid, self.extent, "GridWorldEnv Initialized")
-        # print(self.grid.shape)
+        self.action_arr_size = 400
         
     def step(self, action):
+        
+        # action is a fixed  array of size 400 with an int of the following:
+        # 0: up, 1: down, 2: left, 3: right, 4: end
+        # first find the end and slice the action array
+        # then act on each action in the array.
+        
         reward = 0
         self.current_step += 1
-  # small negative reward for each step to encourage shorter paths
+  
         truncated = False
         terminated = False
-        timepen = -1
+        # REWARD STRUCTURE
+        timepen = -0.5
         wallpen = -5
         obstaclepen = -10
         goalrew = 100
-        reward += timepen
-        # validate action
-        # 0: up, 1: down, 2: left, 3: right
+        failedrew = -50
+        
+        wallhit = False
+        obstaclehit = False
+        
 
         if action == 0:
             # new_pos = (self.agent_pos[0]-1, self.agent_pos[1])
@@ -89,8 +74,8 @@ class harderEnv():
                     # if this move lands in the goal
                     reward += goalrew
                     terminated = True
+
         elif action == 1:
-            #down 
             if self.agent_pos[0]>= self.grid.shape[0]-1:
                 # below is wall
                 reward += wallpen
@@ -104,8 +89,8 @@ class harderEnv():
                 if self.agent_pos == self.goal:
                     # if this move lands in the goal
                     reward += goalrew
-                    terminated = True
-                    
+                    terminated = True    
+                       
         elif action == 2:
             #left
             if self.agent_pos[1]<= 0:
@@ -140,7 +125,6 @@ class harderEnv():
                     reward += goalrew
                     terminated = True
             
-        
         if self.current_step >= self.max_steps:
             truncated = True
         return self.grid, reward, terminated, truncated, {}
@@ -154,7 +138,7 @@ class harderEnv():
         return self.grid, 0,  False, False, {}
 
     def render(self):
-        printgrid(self.grid, self.extent, "GridWorldEnv Render")
+        self.kinect.printgrid(self.grid, self.extent, "GridWorldEnv Render")
     
     
 
