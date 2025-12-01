@@ -37,12 +37,12 @@ class harderEnv():
     def step(self, actions):
         reward = 0
         self.current_step += 1
-        
+        # [3 ,3 ,3 2, 1, 0, 0, 4, 4, 4, 4,...]
         # action is a fixed  array of size 400 with an int of the following:
         # 0: up, 1: down, 2: left, 3: right, 4: end
         # first find the end and slice the action array
 
-        for i, act in enumerate(action):
+        for i, act in enumerate(actions):
             if act == 4:
                 actions = actions[:i]
                 break
@@ -81,53 +81,53 @@ class harderEnv():
             elif action == 1:
                 if self.agent_pos[0]>= self.grid.shape[0]-1:
                     # below is wall
-                    reward += wallpen
+                    wallhit = True
                 elif self.grid[self.agent_pos[0]+1, self.agent_pos[1]] == 1:
                     # below is obstacle
-                    reward += obstaclepen
+                    obstaclehit = True
                 else:
                     # valid move
                     self.agent_pos = (self.agent_pos[0]+1, self.agent_pos[1])
                     self.grid[self.agent_pos] = 3  # path
                     if self.agent_pos == self.goal:
                         # if this move lands in the goal
-                        reward += goalrew
-                        terminated = True    
+                        goalhit = True
+   
                         
             elif action == 2:
                 #left
                 if self.agent_pos[1]<= 0:
                     # left is wall
-                    reward += wallpen
+                    wallhit = True
                 elif self.grid[self.agent_pos[0], self.agent_pos[1]-1] == 1:
                     # left is obstacle
-                    reward += obstaclepen
+                    obstaclehit = True
                 else:
                     # valid move
                     self.agent_pos = (self.agent_pos[0], self.agent_pos[1]-1)
                     self.grid[self.agent_pos] = 3  # path
                     if self.agent_pos == self.goal:
                         # if this move lands in the goal
-                        reward += goalrew
-                        terminated = True
+                        goalhit = True
                         
             elif action == 3:
                 #right
                 if self.agent_pos[1]>= self.grid.shape[1]-1:
                     # right is wall
-                    reward += wallpen
+                    wallhit = True
                 elif self.grid[self.agent_pos[0], self.agent_pos[1]+1] == 1:
                     # right is obstacle
-                    reward += obstaclepen
+                    obstaclehit = True
                 else:
                     # valid move
                     self.agent_pos = (self.agent_pos[0], self.agent_pos[1]+1)
                     self.grid[self.agent_pos] = 3  # path
                     if self.agent_pos == self.goal:
                         # if this move lands in the goal
-                        reward += goalrew
-                        terminated = True
-                
+                        goalhit = True
+            elif action == 4:
+                pass
+            
         if self.current_step >= self.max_steps:
             truncated = True
         return self.grid, reward, terminated, truncated, {}
