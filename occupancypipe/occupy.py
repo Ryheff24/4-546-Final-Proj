@@ -1,5 +1,4 @@
 import os
-
 os.environ["LIBFREENECT2_LOGGER_LEVEL"] = "error"
 from cycler import K
 import open3d as o3d
@@ -10,6 +9,7 @@ from matplotlib.widgets import RangeSlider
 from freenect2 import Device, FrameType
 import random
 import time
+from scipy import ndimage
 
 class Kinect:
     def __init__(self, inputdir=None):
@@ -161,17 +161,24 @@ class Kinect:
             occupancy_grid[grid_y, grid_x] = 1
         return occupancy_grid, (x_min, x_max, y_min, y_max)
 
-    def denoise(self, occupancy_grid):
+    def denoise(self, occupancy_grid, min_size=15 ):
         # this needs to be more efficient if its live
         # for every point, if none of its neighbors are occupied set it to unoccupied
-        for x in range(1, occupancy_grid.shape[0]-1):
-            for y in range(1, occupancy_grid.shape[1]-1):
-                if occupancy_grid[x, y] == 1:
-                    z = np.sum(occupancy_grid[x-1:x+2, y-1:y+2])
-                    if z <= 1:
-                        occupancy_grid[x, y] = 0
+        # for x in range(1, occupancy_grid.shape[0]-1):
+        #     for y in range(1, occupancy_grid.shape[1]-1):
+        #         if occupancy_grid[x, y] == 1:
+        #             z = np.sum(occupancy_grid[x-1:x+2, y-1:y+2])
+        #             if z <= 1:
+        #                 occupancy_grid[x, y] = 0
+        # return occupancy_grid
+        structure = ndimage.generate_binary_structure(2, 2)
+        labels,n = ndimage.label(occupancy_grid, structure=structure)
+        counts = np.bincount(labels.ravel())
+        remove = counts < min_size
+        remove[0] = False
+        occupancy_grid[remove[labels]] = 0
         return occupancy_grid
-
+        
     def printgrid(self, occupancy_grid, extent, name):
         plt.figure(figsize=(10, 10))
         plt.imshow(occupancy_grid, cmap='binary', origin='upper', extent=extent)
@@ -272,6 +279,7 @@ class Kinect:
         plt.tight_layout()
         fig.canvas.draw()
         for frame in frames[1:]:
+            frame = self.denoise(frame)
             img.set_data(frame)
             fig.canvas.draw()
             plt.pause(0.1)
@@ -317,6 +325,6 @@ if __name__ == "__main__":
     frames, extent = kinect.createVideo(video)
     kinect.videoPlayback(frames, extent=extent)
     # print(len(video))
-    # out = saveVideo(video)
+    # out = saveVideo(video)x
     # video = loadVideo(out)
     # print(len(video))
