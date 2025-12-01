@@ -219,3 +219,6 @@ __marimo__/
 .vscode
 libfreenect2
 octomap
+stream-mem
+stream-udp
+testing
