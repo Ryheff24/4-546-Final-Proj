@@ -8,13 +8,14 @@ import os
 from occupy import Kinect
 import torch
 
-if torch.backends.mps.is_available():
-    device = torch.device("mps")
-elif torch.cuda.is_available():
-    device = torch.device("cuda")
-else:
-    device = torch.device("cpu")
-print(f"env Using device: {device}")
+# if torch.backends.mps.is_available():
+#     device = torch.device("mps")
+# elif torch.cuda.is_available():
+#     device = torch.device("cuda")
+# else:
+#     device = torch.device("cpu")
+# print(f"env Using device: {device}")
+device = torch.device("cpu")
 
 kinect = Kinect()
 calibrateframe = kinect.loadFrame("occupancypipe/frames/calibration_frame.npy", type='npy', view=False)
@@ -22,9 +23,11 @@ kinect.calibrate(calibrateframe)
 video = kinect.loadVideo("occupancypipe/videos/video_9489441.npy")
 frames, extent = kinect.createVideo(video, z_min_threshold=-2.1, z_max_threshold=-1)
 frames = torch.from_numpy(np.stack(frames)).to(device=device, dtype=torch.float32)
-class harderEnv():
-    
-    def __init__(self, max_steps=50):
+class harderEnv(gym.Env):
+    metadata = {'render.modes': ['human']}
+    def __init__(self, torchMode=True):
+
+        super().__init__()
         self.action_arr_size = 12 # actions per step.
         
         # self.kinect.videoPlayback(frames, extent=extent)
@@ -34,7 +37,7 @@ class harderEnv():
         self.size = self.grid.shape
         self.steps = 0
         self.extent = extent
-        self.observation_space = spaces.Box(low=0, high=1, shape=tuple(self.grid.shape), dtype=np.uint8)
+        self.observation_space = spaces.Box(low=0, high=1, shape=tuple(self.grid.shape), dtype=np.float32)
         self.truncated = False
         self.terminated = False
         self.action_space = spaces.MultiDiscrete([4] * self.action_arr_size)  # actions per step 
@@ -44,17 +47,18 @@ class harderEnv():
         self.goal = (self.grid.shape[0]-1, self.grid.shape[0]//2) # goal point
         self.grid[self.start] = 2 
         self.grid[self.goal] = 2 
-        self.max_steps = max_steps
         # keep a sequence of visited positions for rendering the path
         self.path_positions = [self.start]
         self.gridhistory = []
-
+        self.torchMode = torchMode
         self.max_steps = frames.shape[0] - 1
         
     def step(self, actions):
 
         if isinstance(actions, np.ndarray):
             actions = torch.from_numpy(actions).to(device=device, dtype=torch.long)
+        else:
+            actions = actions.long()
         # Accept either a single action (int) or a sequence of actions
         
         reward = 0.0
@@ -64,14 +68,9 @@ class harderEnv():
         # action is a fixed  array of size 400 with an int of the following:
         # 0: up, 1: down, 2: left, 3: right
         # first find the end and slice the action array
-        # episode only ends when 4 is hit or max steps reached
         # dont accumulate penalties for hitting walls/obstacles
         # if the goal is hit but the episode isnt ended, dont reward success
         
-        end_idx = (actions == 4).nonzero(as_tuple=False)
-        if len(end_idx) > 0:
-            actions = actions[:end_idx[0][0]+1]
- 
         # REWARD STRUCTURE
         timepen = -0.1
         wallpen = -5
@@ -190,28 +189,27 @@ class harderEnv():
         # print(f"steps_taken: {steps_taken}, wallhit: {wallhit}, obstaclehit: {obstaclehit}")
         reward = reward + (steps_taken * timepen + wallhit * wallpen + obstaclehit * obstaclepen)
         
-        if self.steps >= self.max_steps:
+        if not self.terminated and self.steps >= self.max_steps:
             self.truncated = True
-            print(f"Max steps reached: {self.steps} >= {self.max_steps}")
+            # print(f"Max steps reached: {self.steps} >= {self.max_steps}")
             if not self.goalhit:
                 reward += failedrew
                 
         # print(f"steps_taken: {steps_taken}, total steps: {self.steps}, reward: {reward}, goalhit: {self.goalhit}, wallhit: {wallhit}, obstaclehit: {obstaclehit}, truncated: {self.truncated}, terminated: {self.terminated}")
-        return self.grid.clone(), float(reward), self.truncated, self.terminated, {'goal_hit': self.goalhit, 'wall_hits': wallhit, 'obstacle_hits': obstaclehit, 'steps_taken': steps_taken}
+        return self.grid.clone() if self.torchMode else self.grid.clone().cpu().numpy(), float(reward), self.terminated, self.truncated, {'goal_hit': self.goalhit, 'wall_hits': wallhit, 'obstacle_hits': obstaclehit, 'steps_taken': steps_taken}
 
-    def reset(self):
+    def reset(self, *, seed=None, options=None):
         self.grid = self.start_grid[0].clone()
         self.end_grid.zero_()
         self.steps = 0
         self.agent_pos = self.start
         self.path_positions = [self.start]
-        self.grid[self.start] = 2 
-        self.grid[self.goal] = 2 
+        # self.grid[self.start] = 2 
+        # self.grid[self.goal] = 2 
         self.truncated = False
         self.terminated = False
         self.goalhit = False
-        return self.grid, 0,  False, False, {}
-
+        return self.grid.clone() if self.torchMode else self.grid.clone().cpu().numpy(), {}
     def render(self, video=False, save_path=None, block=True):
         if video:
             print(self.steps)
