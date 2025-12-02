@@ -247,7 +247,7 @@ class harderEnv(gym.Env):
         else: 
             # calc distance
             diff = self.prev_distance - cur_distance
-            reward += diff * distancepen if diff > 0 else 0
+            reward += diff * distancepen
             self.prev_distance = cur_distance
 
         # print(f"steps_taken: {steps_taken}, wallhit: {wallhit}, obstaclehit: {obstaclehit}")

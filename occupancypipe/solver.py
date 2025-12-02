@@ -7,7 +7,7 @@ import torch
 
 from hardenv import harderEnv
 def main():
-    n_envs = 24
+    n_envs = 4
     # if torch.backends.mps.is_available():
     #     device = torch.device("mps")
     # elif torch.cuda.is_available():
@@ -16,8 +16,8 @@ def main():
 
     env = SubprocVecEnv([lambda: harderEnv(torchMode=False) for _ in range(n_envs)])
     env = VecMonitor(env)
-    model = PPO("MlpPolicy", env, verbose=1)
-    model.learn(total_timesteps=1000000)
+    model = PPO("MlpPolicy", env, verbose=1, tensorboard_log="./ppo_2d_tensorboard/")
+    model.learn(total_timesteps=1000000, tb_log_name="PPO_2D_Run1")
     model.save("ppo_2d")
 
     # del model # remove to demonstrate saving and loading
