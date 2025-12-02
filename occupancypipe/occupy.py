@@ -143,11 +143,11 @@ class Kinect:
         self.x_min, self.x_max = points[:, 0].min(), points[:, 0].max()
         self.y_min, self.y_max = points[:, 1].min(), points[:, 1].max()
         self.calibrated = True
-        
-    def create(self, points, grid_resolution=0.02, z_min_threshold=1.45, z_max_threshold=1.80):
+    
+    def create(self, points, grid_resolution=0.02, z_min_threshold=1.45, z_max_threshold=1.80, skipCalibration=False):
         table_points = points[(points[:, 2] >= z_min_threshold) & (points[:, 2] <= z_max_threshold)]
         # if len(table_points) == 0: return None, None
-        if self.calibrated:
+        if self.calibrated and not skipCalibration:
             x_min, x_max = self.x_min, self.x_max
             y_min, y_max = self.y_min, self.y_max
         else:
@@ -260,7 +260,7 @@ class Kinect:
         # printgrid(occupancy_grid, extent, "SavedFrame")
         return occupancy_grid, extent
 
-    def createVideo(self, video):
+    def createVideo(self, video, skipCalibration=False):
         grid_resolution=0.02
         z_min_threshold=-1.720
         z_max_threshold=-0.5
@@ -270,7 +270,8 @@ class Kinect:
                 points,
                 grid_resolution=grid_resolution,
                 z_min_threshold=z_min_threshold,
-                z_max_threshold=z_max_threshold
+                z_max_threshold=z_max_threshold,
+                skipCalibration=skipCalibration
             )
             frames.append(occupancy_grid)
             # printgrid(occupancy_grid, extent, f"VideoFrame_{i}")
@@ -305,32 +306,10 @@ class Kinect:
 
 
 if __name__ == "__main__":
-    time.sleep(3)
     kinect = Kinect()
-    # video = kinect.loadVideo("/Users/ryanheffernan/Documents/Buffalo/CSE446/CSE-4-546-Final-Project-Team-49/occupancypipe/videos/video_4923851.npy")
-    # frame = kinect.loadNPY("/Users/ryanheffernan/Documents/Buffalo/CSE446/CSE-4-546-Final-Project-Team-49/occupancypipe/frame_9059672.npy", view=False)
-    # print("Calibrating Kinect...")
-    # kinect.frameto2d(save=False, points=frame)
-    # frame = kinect.takeSingleFrame()
-    # kinect.frameto2d(save=False, points=frame)
-    # kinect.saveNPY(frame, filename="calibration_frame.npy")
-    
-    frame = kinect.loadFrame("occupancypipe/frames/calibration_frame.npy", type='npy', view=False)
-    kinect.calibrate(frame)
-
-    
-    
-    #     # print("Taking Frame...")
-    # # kinect.saveFrame(frame)
-    # video = kinect.record()
-    # filename = kinect.saveVideo(video, compress=True)
+    calibrateframe = kinect.loadFrame("occupancypipe/frames/calibration_frame.npy", type='npy', view=False)
+    kinect.calibrate(calibrateframe)
     video = kinect.loadVideo("occupancypipe/videos/video_9489441.npy")
-    filename = kinect.saveVideo(video, compress=True)
-    video = kinect.loadVideo(filename=filename)
-    
-    frames, extent = kinect.createVideo(video)
-    kinect.videoPlayback(frames, extent=extent)
-    # print(len(video))
-    # out = saveVideo(video)x
-    # video = loadVideo(out)
-    # print(len(video))
+    frames, extent = kinect.createVideo(video, skipCalibration=False)
+    kinect.videoPlayback(frames, extent)
+    # frames = torch.from_numpy(np.stack(frames)).to(device=device, dtype=torch.float32)
