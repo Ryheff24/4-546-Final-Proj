@@ -222,3 +222,8 @@ octomap
 stream-mem
 stream-udp
 testing
+
+
+#Files to be ignored from recent edits
+
+scripts/random_agent.py
