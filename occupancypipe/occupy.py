@@ -120,18 +120,23 @@ class Kinect:
         return output
     
 
-    def saveVideo(self, frames, filename=None):
+    def saveVideo(self, frames, filename=None, fps=10, compress=True):
         output_dir = f"{self.inputdir}/videos"
         if filename is not None:
             output = os.path.join(output_dir, filename)
         else:
-            output = os.path.join(output_dir, f"./video_{random.randint(0, 10000000)}.npy")
-        np.save(output, frames)
+            output = os.path.join(output_dir, f"./video_{random.randint(0, 10000000)}.{'npz' if compress else 'npy' }")
+        if compress:
+            np.savez_compressed(output, frames=frames)
+        else:
+            np.save(output, frames)
         print(f"Saved video to {output}")
         return output
 
     def loadVideo(self, filename):
         frames = np.load(filename, allow_pickle=True)
+        if filename.endswith('.npz'):
+            frames = frames['frames']
         return frames
     
     def calibrate(self, points):
@@ -171,8 +176,9 @@ class Kinect:
         #             if z <= 1:
         #                 occupancy_grid[x, y] = 0
         # return occupancy_grid
+        mask = occupancy_grid == 1
         structure = ndimage.generate_binary_structure(2, 2)
-        labels,n = ndimage.label(occupancy_grid, structure=structure)
+        labels,n = ndimage.label(mask, structure=structure)
         counts = np.bincount(labels.ravel())
         remove = counts < min_size
         remove[0] = False
@@ -180,6 +186,7 @@ class Kinect:
         return occupancy_grid
         
     def printgrid(self, occupancy_grid, extent, name):
+        occupancy_grid = self.denoise(occupancy_grid)
         plt.figure(figsize=(10, 10))
         plt.imshow(occupancy_grid, cmap='binary', origin='upper', extent=extent)
         plt.xlabel('X (meters)')
@@ -316,8 +323,11 @@ if __name__ == "__main__":
     #     # print("Taking Frame...")
     # # kinect.saveFrame(frame)
     # video = kinect.record()
-    # kinect.saveVideo(video)
+    # filename = kinect.saveVideo(video, compress=True)
     video = kinect.loadVideo("occupancypipe/videos/video_9489441.npy")
+    filename = kinect.saveVideo(video, compress=True)
+    video = kinect.loadVideo(filename=filename)
+    
     frames, extent = kinect.createVideo(video)
     kinect.videoPlayback(frames, extent=extent)
     # print(len(video))

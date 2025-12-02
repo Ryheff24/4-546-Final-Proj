@@ -10,7 +10,7 @@ from occupy import Kinect
 
 class harderEnv():
     
-    def __init__(self, filename, max_steps=1000, obstacles=5):
+    def __init__(self, max_steps=500):
         self.kinect = Kinect()
         frame = self.kinect.loadFrame("occupancypipe/frames/calibration_frame.npy", type='npy', view=False)
         self.kinect.calibrate(frame)
@@ -21,7 +21,7 @@ class harderEnv():
         self.start_grid = frames[0]
         self.size = self.start_grid.shape
         self.grid = self.start_grid.copy()
-        self.max_steps = min(max_steps, 1000)
+        self.max_steps = min(max_steps, 500)
         self.current_step = 0
         self.extent = extent
         self.observation_space = spaces.Box(low=0, high=1, shape=self.start_grid.shape, dtype=np.uint8)
@@ -36,13 +36,12 @@ class harderEnv():
         self.action_arr_size = 400
         # keep a sequence of visited positions for rendering the path
         self.path_positions = [self.start]
+        self.gridhistory =[]
         
     def step(self, actions):
+        
         # Accept either a single action (int) or a sequence of actions
-        if isinstance(actions, (int, np.integer)):
-            actions = [int(actions)]
-        else:
-            actions = list(map(int, actions))
+        
 
         reward = 0.0
         # We'll count each internal move toward the step limit
@@ -197,7 +196,7 @@ class harderEnv():
         # Ensure start and goal markers remain
         self.grid[self.start] = 2
         self.grid[self.goal] = 2
-
+        self.gridhistory.append(self.grid.copy())
         return self.grid.copy(), float(reward), bool(terminated), bool(truncated), {}
         
     def reset(self):
@@ -210,71 +209,71 @@ class harderEnv():
         return self.grid, 0,  False, False, {}
 
     def render(self, save_path=None, block=True):
-        print(f"[hardenv.render] save_path={save_path!r}, block={block}")
-        # Draw the grid and overlay the agent path as a line from start to current position
-        try:
-            x_min, x_max, y_min, y_max = self.extent
-        except Exception:
-            # fallback to simple imshow if extent is unavailable
-            fig = plt.figure(figsize=(6, 6))
-            plt.imshow(self.grid, cmap='binary', origin='upper')
-            plt.title('GridWorldEnv Render')
-            if save_path:
-                os.makedirs(os.path.dirname(save_path), exist_ok=True)
-                plt.savefig(save_path)
-                plt.close(fig)
-                return
-            else:
-                plt.show(block=block)
-                return
+        self.kinect.printgrid(self.grid, self.extent, "random_agent_initial.png")
+        # print(f"[hardenv.render] save_path={save_path!r}, block={block}")
+        # # Draw the grid and overlay the agent path as a line from start to current position
+        # try:
+        #     x_min, x_max, y_min, y_max = self.extent
+        # except Exception:
+        #     # fallback to simple imshow if extent is unavailable
+        #     fig = plt.figure(figsize=(6, 6))
+        #     plt.imshow(self.grid, cmap='binary', origin='upper')
+        #     plt.title('GridWorldEnv Render')
+        #     if save_path:
+        #         os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        #         plt.savefig(save_path)
+        #         plt.close(fig)
+        #         return
+        #     else:
+        #         plt.show(block=block)
+        #         return
+        
+        # fig, ax = plt.subplots(figsize=(8, 8))
+        # img = ax.imshow(self.grid, cmap='binary', origin='upper', extent=self.extent)
+        # ax.set_xlabel('X (meters)')
+        # ax.set_ylabel('Y (meters)')
+        # ax.set_title('2D Occupancy Grid with Agent Path')
 
-        fig, ax = plt.subplots(figsize=(8, 8))
-        img = ax.imshow(self.grid, cmap='binary', origin='upper', extent=self.extent)
-        ax.set_xlabel('X (meters)')
-        ax.set_ylabel('Y (meters)')
-        ax.set_title('2D Occupancy Grid with Agent Path')
+        # # If there is a recorded path, convert grid indices to world coordinates and plot a line
+        # if len(self.path_positions) >= 2:
+        #     grid_h, grid_w = self.grid.shape
+        #     x_min, x_max, y_min, y_max = self.extent
+        #     # cell width/height
+        #     cell_w = (x_max - x_min) / grid_w
+        #     cell_h = (y_max - y_min) / grid_h
+        #     xs = []
+        #     ys = []
+        #     for (r, c) in self.path_positions:
+        #         # map center of cell to world coords
+        #         x = x_min + (c + 0.5) * cell_w
+        #         y = y_min + (r + 0.5) * cell_h
+        #         xs.append(x)
+        #         ys.append(y)
+        #     ax.plot(xs, ys, color='red', linewidth=2, marker='o', markersize=4)
 
-        # If there is a recorded path, convert grid indices to world coordinates and plot a line
-        if len(self.path_positions) >= 2:
-            grid_h, grid_w = self.grid.shape
-            x_min, x_max, y_min, y_max = self.extent
-            # cell width/height
-            cell_w = (x_max - x_min) / grid_w
-            cell_h = (y_max - y_min) / grid_h
-            xs = []
-            ys = []
-            for (r, c) in self.path_positions:
-                # map center of cell to world coords
-                x = x_min + (c + 0.5) * cell_w
-                y = y_min + (r + 0.5) * cell_h
-                xs.append(x)
-                ys.append(y)
-            ax.plot(xs, ys, color='red', linewidth=2, marker='o', markersize=4)
+        # # Draw start and goal markers
+        # sr, sc = self.start
+        # gr, gc = self.goal
+        # cell_w = (x_max - x_min) / self.grid.shape[1]
+        # cell_h = (y_max - y_min) / self.grid.shape[0]
+        # sx = x_min + (sc + 0.5) * cell_w
+        # sy = y_min + (sr + 0.5) * cell_h
+        # gx = x_min + (gc + 0.5) * cell_w
+        # gy = y_min + (gr + 0.5) * cell_h
+        # ax.scatter([sx], [sy], c='green', s=80, label='start')
+        # ax.scatter([gx], [gy], c='gold', s=80, label='goal')
+        # ax.legend()
+        # plt.tight_layout()
 
-        # Draw start and goal markers
-        sr, sc = self.start
-        gr, gc = self.goal
-        cell_w = (x_max - x_min) / self.grid.shape[1]
-        cell_h = (y_max - y_min) / self.grid.shape[0]
-        sx = x_min + (sc + 0.5) * cell_w
-        sy = y_min + (sr + 0.5) * cell_h
-        gx = x_min + (gc + 0.5) * cell_w
-        gy = y_min + (gr + 0.5) * cell_h
-        ax.scatter([sx], [sy], c='green', s=80, label='start')
-        ax.scatter([gx], [gy], c='gold', s=80, label='goal')
-        ax.legend()
-        plt.tight_layout()
-
-        if save_path:
-            import os as _os
-            _os.makedirs(_os.path.dirname(save_path), exist_ok=True)
-            fig.savefig(save_path)
-            plt.close(fig)
-            return
-        else:
-            plt.show(block=block)
-            return
-    
+        # if save_path:
+        #     import os as _os
+        #     _os.makedirs(_os.path.dirname(save_path), exist_ok=True)
+        #     fig.savefig(save_path)
+        #     plt.close(fig)
+        #     return
+        # else:
+        #     plt.show(block=block)
+        #     return
     
 
 
@@ -286,4 +285,21 @@ class harderEnv():
         pass
     
 if __name__ == "__main__":
-    env = harderEnv("person.npy", max_steps=500, obstacles=10)
+    env = harderEnv(max_steps=50)
+    print(env.observation_space)
+    for ep in range(1):
+        obs, _, _, _, _ = env.reset()
+        
+        total_reward = 0.0
+        terminated = False
+        truncated = False
+        while True:
+            action = [ 1 for _ in range(0, 192)] + [4]
+            # action = [random.randint(0, 3) for _ in range(0, 199)] + [4]  # random actions + explicit end
+            print(len(action))
+            obs, reward, terminated, truncated, info = env.step(action)
+            total_reward += reward
+            if truncated:
+                break
+        print(f'Episode {ep+1}: total_reward={total_reward:.2f}, terminated={terminated}, truncated={truncated}, steps={env.current_step}')
+    env.render()
