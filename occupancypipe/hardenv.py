@@ -20,11 +20,12 @@ kinect = Kinect()
 calibrateframe = kinect.loadFrame("occupancypipe/frames/calibration_frame.npy", type='npy', view=False)
 kinect.calibrate(calibrateframe)
 video = kinect.loadVideo("occupancypipe/videos/video_9489441.npy")
-frames, extent = kinect.createVideo(video)
+frames, extent = kinect.createVideo(video, z_min_threshold=-2.1, z_max_threshold=-1)
 frames = torch.from_numpy(np.stack(frames)).to(device=device, dtype=torch.float32)
 class harderEnv():
     
     def __init__(self, max_steps=50):
+        self.action_arr_size = 12 # actions per step.
         
         # self.kinect.videoPlayback(frames, extent=extent)
         self.start_grid = frames
@@ -36,14 +37,14 @@ class harderEnv():
         self.observation_space = spaces.Box(low=0, high=1, shape=tuple(self.grid.shape), dtype=np.uint8)
         self.truncated = False
         self.terminated = False
-        self.action_space = spaces.Discrete(4)  
+        self.action_space = spaces.MultiDiscrete([4] * self.action_arr_size)  # actions per step 
         self.goalhit = False
         self.start = (0, self.grid.shape[0]//2)  # starting point
         self.agent_pos = self.start
         self.goal = (self.grid.shape[0]-1, self.grid.shape[0]//2) # goal point
         self.grid[self.start] = 2 
         self.grid[self.goal] = 2 
-        self.action_arr_size = 12 # actions per step.
+        self.max_steps = max_steps
         # keep a sequence of visited positions for rendering the path
         self.path_positions = [self.start]
         self.gridhistory = []
@@ -52,6 +53,8 @@ class harderEnv():
         
     def step(self, actions):
 
+        if isinstance(actions, np.ndarray):
+            actions = torch.from_numpy(actions).to(device=device, dtype=torch.long)
         # Accept either a single action (int) or a sequence of actions
         
         reward = 0.0
