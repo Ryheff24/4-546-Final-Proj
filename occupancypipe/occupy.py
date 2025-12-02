@@ -1,4 +1,7 @@
+from calendar import c
 import os
+
+from sympy import N, comp
 os.environ["LIBFREENECT2_LOGGER_LEVEL"] = "error"
 from cycler import K
 import open3d as o3d
@@ -277,7 +280,7 @@ class Kinect:
             # printgrid(occupancy_grid, extent, f"VideoFrame_{i}")
         return frames, extent
 
-    def videoPlayback(self, frames, extent):
+    def videoPlayback(self, frames, extent, steps=None):
         plt.ion()
         fig, ax = plt.subplots()
         img = plt.imshow(frames[0], cmap='binary', origin='upper', extent=extent)
@@ -286,12 +289,13 @@ class Kinect:
         ax.set_title('2D Occupancy Grid(Black is Occupied)')
         plt.tight_layout()
         fig.canvas.draw()
-        for frame in frames[1:]:
+        for frame in frames[1:None if steps is None else steps]:
             frame = self.denoise(frame)
             img.set_data(frame)
             fig.canvas.draw()
             plt.pause(0.1)
             
+
             # printgrid(occupancy_grid, extent, f"VideoFrame_{i}")
     def getZRange(self):
         points = self.takeSingleFrame(view=False)
@@ -300,16 +304,48 @@ class Kinect:
         print(f"Y range: [{points[:, 1].min():.3f}, {points[:, 1].max():.3f}]")
         return points
     # def zRangePlot(self, points):
-        
-        
     
 
 
 if __name__ == "__main__":
     kinect = Kinect()
-    calibrateframe = kinect.loadFrame("occupancypipe/frames/calibration_frame.npy", type='npy', view=False)
-    kinect.calibrate(calibrateframe)
-    video = kinect.loadVideo("occupancypipe/videos/video_9489441.npy")
-    frames, extent = kinect.createVideo(video, skipCalibration=False)
-    kinect.videoPlayback(frames, extent)
+    time.sleep(3)
+    
+    video = kinect.record(duration=10, fps=10)
+    filename_10x10 = kinect.saveVideo(video, compress=False, filename="video10sec10fps.npy")
+    compressed_filename_10x10 = kinect.saveVideo(video, compress=True, filename="video10sec10fps.npz")
+    calibration_frame_10x10 = kinect.saveNPY(video[0], compress=False, filename="calibration_frame_10x10.npy")
+    kinect.calibrate(video[0])
+    frames_10x10, extent_10x10 = kinect.createVideo(video)
+    time.sleep(2)
+
+    video = kinect.record(duration=10, fps=5)
+    filename_10x5 = kinect.saveVideo(video, compress=False, filename="video10sec5fps.npy")
+    compressed_filename_10x5 = kinect.saveVideo(video, compress=True, filename="video10sec5fps.npz")
+    calibration_frame_10x5 = kinect.saveNPY(video[0], compress=False, filename="calibration_frame_10x5.npy")
+    kinect.calibrate(video[0])
+    frames_10x5, extent_10x5 = kinect.createVideo(video)
+    time.sleep(2)
+    
+    video = kinect.record(duration=5, fps=5)
+    filename_5x5 = kinect.saveVideo(video, compress=False, filename="video5sec5fps.npy")
+    compressed_filename_5x5 = kinect.saveVideo(video, compress=True, filename="video5sec5fps.npz")
+    calibration_frame_5x5 = kinect.saveNPY(video[0], compress=False, filename="calibration_frame_5x5.npy")
+    kinect.calibrate(video[0])
+    frames_5x5, extent_5x5 = kinect.createVideo(video)
+    time.sleep(2)
+    
+    kinect.videoPlayback(frames_10x10, extent_10x10)
+    time.sleep(2)
+    
+    kinect.videoPlayback(frames_10x5, extent_10x5)
+    time.sleep(2)
+    
+    kinect.videoPlayback(frames_5x5, extent_5x5)
+    
+    # calibrateframe = kinect.loadFrame("occupancypipe/frames/calibration_frame.npy", type='npy', view=False)
+    # kinect.calibrate(calibrateframe)
+    # video = kinect.loadVideo("occupancypipe/videos/video_9489441.npy")
+    # frames, extent = kinect.createVideo(video, skipCalibration=False)
+    # kinect.videoPlayback(frames, extent)
     # frames = torch.from_numpy(np.stack(frames)).to(device=device, dtype=torch.float32)
