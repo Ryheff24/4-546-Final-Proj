@@ -1,3 +1,4 @@
+from math import dist
 import re
 import gymnasium as gym
 from gymnasium import spaces
@@ -5,8 +6,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import random
 import os
+
 from occupy import Kinect
 import torch
+from collections import deque
 
 # if torch.backends.mps.is_available():
 #     device = torch.device("mps")
@@ -56,7 +59,58 @@ class harderEnv(gym.Env):
         self.gridhistory = []
         self.torchMode = torchMode
         self.max_steps = frames.shape[0] - 1
+        self.distances = self.precompute_distances(load_from_file=True)
+        self.prev_distance = self.distances[0, self.start[0], self.start[1]]
+    
+    def precompute_distances(self, load_from_file=False, save_to_file=False, filename="occupancypipe/hardenv_distance_map.pt"):
+        if load_from_file:
+            if os.path.exists(filename):
+                print(f"Loading precomputed distance map from {filename}")
+                file = torch.load(filename, map_location=device)
+                if file.shape != frames.shape:
+                    print(f"Distance map shape {file.shape} does not match frames shape {frames.shape}. Recomputing distances.")
+                    return
+                return file
+            else:
+                print(f"Distance map file {filename} not found. Computing distances.")
         
+        frame_count = frames.shape[0]
+        
+        height = frames.shape[1]
+        width = frames.shape[2]
+        map = torch.zeros((frame_count, height, width), device=device, dtype=torch.float32)
+        for i, frame in enumerate(frames):
+            print(f"Precomputing distances for frame {i+1}/{frame_count}")
+            grid = frame.clone()
+            visited = torch.full(grid.shape, -1, device=device, dtype=torch.float32)
+            queue = deque([self.goal])
+            visited[self.goal] = 0 # distance to itself is 0
+            while queue:
+                cur_x, cur_y = queue.popleft()
+                up = (cur_x-1, cur_y)
+                down = (cur_x+1, cur_y)
+                left = (cur_x, cur_y-1)
+                right = (cur_x, cur_y+1)
+                for next_x, next_y in [up, down, left, right]:
+                    if next_x < 0 or next_x >= height:
+                        continue
+                    if next_y < 0 or next_y >= width:
+                        continue
+                    if visited[next_x, next_y] != -1: # already seen
+                        continue
+                    if grid[next_x, next_y] == 1: # check for obstacle
+                        continue
+                    
+                    # valid move
+                    visited[next_x, next_y] = visited[cur_x, cur_y] + 1
+                    queue.append((next_x, next_y))
+            map[i] = visited
+        if save_to_file:
+            torch.save(map, filename)
+            print(f"Saved precomputed distance map to {filename}")
+        return map
+
+
     def step(self, actions):
 
         if isinstance(actions, np.ndarray):
@@ -81,6 +135,7 @@ class harderEnv(gym.Env):
         obstaclepen = -10
         goalrew = 150
         failedrew = -100
+        distancepen = 2
         
         wallhit = 0
         obstaclehit = 0
@@ -173,7 +228,7 @@ class harderEnv(gym.Env):
                         self.goalhit = True
                         break
 
-
+        cur_distance = self.distances[self.steps, self.agent_pos[0], self.agent_pos[1]]
         # Ensure start and goal markers remain
         self.grid[self.start] = 2
         self.grid[self.goal] = 2
@@ -189,6 +244,11 @@ class harderEnv(gym.Env):
             reward += goalrew
             print(f"Goal hit at step {self.steps}!")
             self.terminated = True
+        else: 
+            # calc distance
+            diff = self.prev_distance - cur_distance
+            reward += diff * distancepen if diff > 0 else 0
+            self.prev_distance = cur_distance
 
         # print(f"steps_taken: {steps_taken}, wallhit: {wallhit}, obstaclehit: {obstaclehit}")
         reward = reward + (steps_taken * timepen + wallhit * wallpen + obstaclehit * obstaclepen)
@@ -231,8 +291,8 @@ class harderEnv(gym.Env):
     
 if __name__ == "__main__":
     env = harderEnv()
-    # action = torch.tensor([random.randint(0, 3) for _ in range(0, 499)], device=device, dtype=torch.long)  # random actions + explicit end
-    action = torch.tensor([ 1 for _ in range(0, 499)], device=device, dtype=torch.long)
+    action = torch.tensor([random.randint(0, 3) for _ in range(0, 499)], device=device, dtype=torch.long)  # random actions + explicit end
+    # action = torch.tensor([ 1 for _ in range(0, 499)], device=device, dtype=torch.long)
     for ep in range(1):
         obs, _ = env.reset()
         
