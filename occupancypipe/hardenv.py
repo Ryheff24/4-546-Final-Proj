@@ -23,6 +23,10 @@ kinect.calibrate(calibrateframe)
 video = kinect.loadVideo("occupancypipe/videos/video_9489441.npy")
 frames, extent = kinect.createVideo(video, z_min_threshold=-2.1, z_max_threshold=-1)
 frames = torch.from_numpy(np.stack(frames)).to(device=device, dtype=torch.float32)
+
+
+
+
 class harderEnv(gym.Env):
     metadata = {'render.modes': ['human']}
     def __init__(self, torchMode=True):
@@ -230,7 +234,7 @@ if __name__ == "__main__":
     # action = torch.tensor([random.randint(0, 3) for _ in range(0, 499)], device=device, dtype=torch.long)  # random actions + explicit end
     action = torch.tensor([ 1 for _ in range(0, 499)], device=device, dtype=torch.long)
     for ep in range(1):
-        obs, _, _, _, _ = env.reset()
+        obs, _ = env.reset()
         
         total_reward = 0.0
         terminated = False
