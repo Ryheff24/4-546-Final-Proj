@@ -15,6 +15,7 @@ def preprocess_frames():
     frame_name = "occupancypipe/frames/processed_frames.npy"
     extent_name = "occupancypipe/frames/extent.npy"
     if os.path.exists(frame_name) and os.path.exists(extent_name):
+        print("Processed frames already exist. Skipping preprocessing.")
         return
     from occupy import Kinect
     kinect = Kinect()
@@ -148,13 +149,11 @@ class harderEnv(gym.Env):
         # if the goal is hit but the episode isnt ended, dont reward success
         
         # REWARD STRUCTURE
-        timepen = -0.1
-        # wallpen = -5
-        # obstaclepen = -10
-        goalrew = 150
-        failedrew = -100
-        distancepen = 2
-        deathpen = -50
+        timepen = -0.05
+        goalrew = 200
+        failedrew = -50
+        distancepen = 3
+        deathpen = -25
         wallhit = 0
         obstaclehit = 0
         dead = False

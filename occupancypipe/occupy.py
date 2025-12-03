@@ -1,13 +1,12 @@
-from calendar import c
-from fileinput import filename
 import os
-
-from sympy import N, comp
-# os.environ["LIBFREENECT2_LOGGER_LEVEL"] = "error"
+os.environ["LIBFREENECT2_LOGGER_LEVEL"] = "error"
+os.environ["LIBUSB_DEBUG"] = "0"
 from cycler import K
 import open3d as o3d
-from time import perf_counter, sleep
+from time import perf_counter
 import numpy as np
+if not hasattr(np, 'product'):
+    np.product = np.prod
 import matplotlib.pyplot as plt
 from freenect2 import Device, FrameType
 import random
@@ -59,7 +58,13 @@ class Kinect:
         if view: self.loadPCTXT(filename)
         return np.array(points)
 
-
+    def transform1(self, points):
+        ret = points.copy()
+        ret[:, 0] = -points[:, 0]
+        ret[:, 1] = -points[:, 1]
+        ret[:, 2] = points[:, 2]
+        return ret
+    
     def record(self, duration=10, fps=10, playback=False):
         device = Device()
         arr = []
@@ -85,7 +90,9 @@ class Kinect:
                 if type_ == FrameType.Depth:
                     # Convert to point cloud INSIDE the context while frame is valid
                     points = device.registration.get_points_xyz_array(frame)
-                    pcd.points = o3d.utility.Vector3dVector(points.reshape(-1, 3))
+                    reshape = points.reshape(-1, 3)
+                    points = self.transform1(reshape)
+                    pcd.points = o3d.utility.Vector3dVector(points)
                     pcd.remove_non_finite_points()
                     
                     # Make a copy of the points array
@@ -187,12 +194,16 @@ class Kinect:
             frames = frames['frames']
         return frames
     
-    def calibrate(self, points):
+    def calibrate(self, points, z_min_threshold=1.45, z_max_threshold=1.80):
+        if z_min_threshold is not None and z_max_threshold is not None:
+            filtered = points[(points[:, 2] >= z_min_threshold) & (points[:, 2] <= z_max_threshold)]
+            if len(filtered) > 0:
+                points = filtered
         self.x_min, self.x_max = points[:, 0].min(), points[:, 0].max()
         self.y_min, self.y_max = points[:, 1].min(), points[:, 1].max()
         self.calibrated = True
     
-    def create(self, points, grid_resolution=0.02, z_min_threshold=1.45, z_max_threshold=1.80, skipCalibration=False):
+    def create(self, points, grid_resolution=0.02, z_min_threshold=1.45, z_max_threshold=1.80, skipCalibration=False, crop=20):
         table_points = points[(points[:, 2] >= z_min_threshold) & (points[:, 2] <= z_max_threshold)]
         # if len(table_points) == 0: return None, None
         if self.calibrated and not skipCalibration:
@@ -202,19 +213,26 @@ class Kinect:
             x_min, x_max = points[:, 0].min(), points[:, 0].max()
             y_min, y_max = points[:, 1].min(), points[:, 1].max()
         
-        grid_width = int(np.ceil((x_max - x_min) / grid_resolution))
-        grid_height = int(np.ceil((y_max - y_min) / grid_resolution))
+        grid_width = int(np.ceil((x_max - x_min) / grid_resolution)) + 1
+        grid_height = int(np.ceil((y_max - y_min) / grid_resolution)) + 1
         occupancy_grid = np.zeros((grid_height, grid_width))
         for point in table_points:
             x, y, _ = point
+            if x < x_min or x > x_max or y < y_min or y > y_max:
+                continue
             grid_x = int((x - x_min) / grid_resolution)
             grid_y = int((y - y_min) / grid_resolution)
             grid_x = max(0, min(grid_x, grid_width - 1))
             grid_y = max(0, min(grid_y, grid_height - 1))
             occupancy_grid[grid_y, grid_x] = 1
+        occupancy_grid = occupancy_grid[crop:-crop, crop:-crop]
+        x_min = x_min + (crop) * grid_resolution
+        y_min = y_min + crop * grid_resolution
+        x_max = x_max - (grid_width - crop) * grid_resolution
+        y_max = y_max - (grid_height - crop) * grid_resolution
         return occupancy_grid, (x_min, x_max, y_min, y_max)
 
-    def denoise(self, occupancy_grid, min_size=15 ):
+    def denoise(self, occupancy_grid, min_size=200 ):
         # this needs to be more efficient if its live
         # for every point, if none of its neighbors are occupied set it to unoccupied
         # for x in range(1, occupancy_grid.shape[0]-1):
@@ -308,7 +326,7 @@ class Kinect:
         # printgrid(occupancy_grid, extent, "SavedFrame")
         return occupancy_grid, extent
 
-    def createVideo(self, video, skipCalibration=False, grid_resolution=0.02, z_min_threshold=-1.9, z_max_threshold=-0.5):
+    def createVideo(self, video, skipCalibration=False, grid_resolution=0.01, z_min_threshold=-1.9, z_max_threshold=-0.5, crop=20):
         frames = []
         for i, points in enumerate(video):
             occupancy_grid, extent = self.create(
@@ -316,10 +334,12 @@ class Kinect:
                 grid_resolution=grid_resolution,
                 z_min_threshold=z_min_threshold,
                 z_max_threshold=z_max_threshold,
-                skipCalibration=skipCalibration
+                skipCalibration=skipCalibration,
+                crop=crop
             )
             frames.append(occupancy_grid)
             # printgrid(occupancy_grid, extent, f"VideoFrame_{i}")
+        print(frames[1].shape)
         return frames, extent
 
     def videoPlayback(self, frames, extent, steps=None):  
@@ -346,40 +366,35 @@ class Kinect:
         print(f"X range: [{points[:, 0].min():.3f}, {points[:, 0].max():.3f}]")
         print(f"Y range: [{points[:, 1].min():.3f}, {points[:, 1].max():.3f}]")
         return points
-    
 
-
-def testVid10sec10fps(record=False):
+def run(record=False,convert=True, playback=True,  duration=10, fps=5, count=4):
     kinect = Kinect()
-    time.sleep(3)
+    # time.sleep(3)
     if record:
-        video = kinect.record(duration=10, fps=10, playback=True)
-        filename_10x10 = kinect.saveVideo(video, compress=False, filename="video10sec10fps.npy")
-        compressed_filename_10x10 = kinect.saveVideo(video, compress=True, filename="video10sec10fps.npz")
-        calibration_frame_10x10 = kinect.saveNPY(video[0], filename="calibration_frame_10x10.npy")
+        video = kinect.record(duration=duration, fps=fps, playback=playback)
+        kinect.saveVideo(video, compress=False, filename=f"video{duration}sec{fps}fps{count}.npy")
+        kinect.saveVideo(video, compress=True, filename=f"video{duration}sec{fps}fps{count}.npz")
+        kinect.saveNPY(video[0], filename=f"calibration_frame_{duration}x{fps}{count}.npy")
         calibration_frame = video[0]
-    video = kinect.loadVideo("occupancypipe/videos/video10sec10fps.npy")
-    calibration_frame = kinect.loadFrame("occupancypipe/frames/calibration_frame_10x10.npy", type='npy', view=False)
-    kinect.calibrate(calibration_frame)
-    frames_10x10, extent_10x10 = kinect.createVideo(video)
-    kinect.videoPlayback(frames_10x10, extent_10x10)
+    if convert:
+        z_min_threshold=-2.8
+        z_max_threshold=-1.5
+        video = kinect.loadVideo(f"occupancypipe/videos/video{duration}sec{fps}fps{count}.npy")
+        calibration_frame = kinect.loadFrame(f"occupancypipe/frames/calibration_frame_{duration}x{fps}{count}.npy", type='npy', view=False)
+        kinect.calibrate(calibration_frame, z_min_threshold=z_min_threshold, z_max_threshold=z_max_threshold)
 
-def testVid5sec5fps(record=False):
-    kinect = Kinect()
-    time.sleep(3)
-    if record:
-        video = kinect.record(duration=5, fps=5, playback=True)
-        filename_5x5 = kinect.saveVideo(video, compress=False, filename="video5sec5fps.npy")
-        compressed_filename_5x5 = kinect.saveVideo(video, compress=True, filename="video5sec5fps.npz")
-        calibration_frame_5x5 = kinect.saveNPY(video[0], filename="calibration_frame_5x5.npy")
-        calibration_frame = video[0]
-    video = kinect.loadVideo("occupancypipe/videos/video5sec5fps.npy")
-    calibration_frame = kinect.loadFrame("occupancypipe/frames/calibration_frame_5x5.npy", type='npy', view=False)
-    kinect.calibrate(calibration_frame)
-    frames_5x5, extent_5x5 = kinect.createVideo(video)
-    kinect.videoPlayback(frames_5x5, extent_5x5)
+        frames_5x5, extent_5x5 = kinect.createVideo(
+            video, 
+            z_min_threshold=z_min_threshold, 
+            z_max_threshold=z_max_threshold,
+            crop=40)
+        kinect.videoPlayback(frames_5x5, extent_5x5)
     
 
 
 if __name__ == "__main__":
-    testVid10sec10fps()
+    # time.sleep(10)
+    # run(record=False, convert=True, playback=True, duration=5, fps=5, count=4) # 4 is medium difficulty
+    run(record=False, convert=True, playback=True, duration=5, fps=5, count=5) # 5 is easy
+    run(record=False, convert=True, playback=True, duration=5, fps=5, count=6) # 6 is hard
+    
