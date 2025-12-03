@@ -4,38 +4,83 @@ import numpy as np
 import matplotlib.pyplot as plt
 import random
 import os
-
-
 import torch
 from collections import deque
+from multiprocessing import Pool
 
 
+def compute_single_frame_distances(args):
+    i, frame_np, goal, height, width = args
+    frame = torch.from_numpy(frame_np)
+    visited = torch.full(frame.shape, -1, dtype=torch.float32)
+    queue = deque([goal])
+    visited[goal] = 0
+    while queue:
+        cur_x, cur_y = queue.popleft()
+        for next_x, next_y in [(cur_x-1, cur_y), (cur_x+1, cur_y), (cur_x, cur_y-1), (cur_x, cur_y+1)]:
+            if next_x < 0 or next_x >= height:
+                continue
+            if next_y < 0 or next_y >= width:
+                continue
+            if visited[next_x, next_y] != -1:
+                continue
+            if frame[next_x, next_y] == 1:
+                continue
+            visited[next_x, next_y] = visited[cur_x, cur_y] + 1
+            queue.append((next_x, next_y))
+    return i, visited
 
-def preprocess_frames():
-    frame_name = "occupancypipe/frames/processed_frames.npy"
-    extent_name = "occupancypipe/frames/extent.npy"
-    if os.path.exists(frame_name) and os.path.exists(extent_name):
-        print("Processed frames already exist. Skipping preprocessing.")
-        return
-    from occupy import Kinect
-    kinect = Kinect()
-    calibrateframe = kinect.loadFrame("occupancypipe/frames/calibration_frame.npy", type='npy', view=False)
-    kinect.calibrate(calibrateframe)
-    video = kinect.loadVideo("occupancypipe/videos/video_9489441.npy")
-    frames, extent = kinect.createVideo(video, z_min_threshold=-2.1, z_max_threshold=-1)
-    frames = torch.from_numpy(np.stack(frames)).to(device=torch.device("cpu"), dtype=torch.float32)
-    np.save("occupancypipe/frames/processed_frames.npy", frames.cpu().numpy())
-    np.save("occupancypipe/frames/extent.npy", extent)
 
-def load_frames(device):
-    frames = np.load("occupancypipe/frames/processed_frames.npy")
-    extent = np.load("occupancypipe/frames/extent.npy")
+def preprocess_frames(default=True, duration=5, fps=5, count=4):
+    if default:
+        frame_name = "occupancypipe/frames/processed_frames.npy"
+        extent_name = "occupancypipe/frames/extent.npy"
+        if os.path.exists(frame_name) and os.path.exists(extent_name):
+            print("Processed frames already exist. Skipping preprocessing.")
+            return
+        from occupy import Kinect
+        kinect = Kinect()
+        calibrateframe = kinect.loadFrame("occupancypipe/frames/calibration_frame.npy", type='npy', view=False)
+        kinect.calibrate(calibrateframe)
+        video = kinect.loadVideo("occupancypipe/videos/video_9489441.npy")
+        frames, extent = kinect.createVideo(video, z_min_threshold=-2.1, z_max_threshold=-1, crop=40)
+        frames = torch.from_numpy(np.stack(frames)).to(device=torch.device("cpu"), dtype=torch.float32)
+        np.save("occupancypipe/frames/processed_frames.npy", frames.cpu().numpy())
+        np.save("occupancypipe/frames/extent.npy", extent)
+    else:
+        z_min_threshold = -2.8
+        z_max_threshold = -1.5
+        frame_name = f"occupancypipe/frames/processed_frames_{duration}sec{fps}fps{count}.npy"
+        extent_name = f"occupancypipe/frames/extent_{duration}sec{fps}fps{count}.npy"
+        if os.path.exists(frame_name) and os.path.exists(extent_name):
+            print("Processed frames already exist. Skipping preprocessing.")
+            return
+        from occupy import Kinect
+        kinect = Kinect()
+        video = kinect.loadVideo(f"occupancypipe/videos/video{duration}sec{fps}fps{count}.npy")
+        calibration_frame = kinect.loadFrame(f"occupancypipe/frames/calibration_frame_{duration}x{fps}{count}.npy", type='npy', view=False)
+        kinect.calibrate(calibration_frame, z_min_threshold=z_min_threshold, z_max_threshold=z_max_threshold)
+        frames, extent = kinect.createVideo(video, z_min_threshold=z_min_threshold, z_max_threshold=z_max_threshold, crop=40)
+        frames = [kinect.denoise(frame) for frame in frames]
+        frames = torch.from_numpy(np.stack(frames)).to(device=torch.device("cpu"), dtype=torch.float32)
+        np.save(f"occupancypipe/frames/processed_frames_{duration}sec{fps}fps{count}.npy", frames.cpu().numpy())
+        np.save(f"occupancypipe/frames/extent_{duration}sec{fps}fps{count}.npy", extent)
+
+
+def load_frames(device, default=True, duration=5, fps=5, count=4):
+    if default:
+        frames = np.load("occupancypipe/frames/processed_frames.npy")
+        extent = np.load("occupancypipe/frames/extent.npy")
+    else:
+        frames = np.load(f"occupancypipe/frames/processed_frames_{duration}sec{fps}fps{count}.npy")
+        extent = np.load(f"occupancypipe/frames/extent_{duration}sec{fps}fps{count}.npy")
     frames = torch.from_numpy(frames).to(device=device, dtype=torch.float32)
     return frames, extent
 
 class harderEnv(gym.Env):
     metadata = {'render.modes': ['human']}
-    def __init__(self, torchMode=True, cnn=False):
+    def __init__(self, torchMode=True, cnn=False, default=True, duration=5, fps=5, count=4, 
+                 distFile="occupancypipe/hardenv_distance_map.pt", cores=1, compute=False):
         self.cnn = cnn
         # if torch.backends.mps.is_available():
         #     device = torch.device("mps")
@@ -46,7 +91,7 @@ class harderEnv(gym.Env):
         print(f"env Using device: {device}")
         self.device = device
         super().__init__()
-        self.frames, self.extent = load_frames(self.device)
+        self.frames, self.extent = load_frames(self.device, default=default, duration=duration, fps=fps, count=count)
         self.action_arr_size = 12 # actions per step.
         
         # self.kinect.videoPlayback(frames, extent=extent)
@@ -60,9 +105,9 @@ class harderEnv(gym.Env):
         self.terminated = False
         self.action_space = spaces.MultiDiscrete([4] * self.action_arr_size)  # actions per step 
         self.goalhit = False
-        self.start = (0, self.grid.shape[0]//2)  # starting point
+        self.start = (0, self.grid.shape[1]//2)  # starting point - top center (row 0, middle column)
         self.agent_pos = self.start
-        self.goal = (self.grid.shape[0]-1, self.grid.shape[0]//2) # goal point
+        self.goal = (self.grid.shape[0]-1, self.grid.shape[1]//2)  # goal point - bottom center (last row, middle column)
         self.grid[self.start] = 2 
         self.grid[self.goal] = 2 
         if cnn:
@@ -78,56 +123,65 @@ class harderEnv(gym.Env):
         self.gridhistory = []
         self.torchMode = torchMode
         self.max_steps = self.frames.shape[0] - 1
-        self.distances = self.precompute_distances(load_from_file=True)
+        self.distances = self.precompute_distances(cores=cores, load_from_file=not compute, save_to_file=compute, filename=distFile)
         self.prev_distance = self.distances[0, self.start[0], self.start[1]]
     
-    def precompute_distances(self, load_from_file=False, save_to_file=False, filename="occupancypipe/hardenv_distance_map.pt"):
+    def precompute_distances(self, cores=1, load_from_file=False, save_to_file=False, filename="occupancypipe/hardenv_distance_map.pt"):
         if load_from_file:
             if os.path.exists(filename):
                 print(f"Loading precomputed distance map from {filename}")
                 file = torch.load(filename, map_location=self.device)
                 if file.shape != self.frames.shape:
                     print(f"Distance map shape {file.shape} does not match frames shape {self.frames.shape}. Recomputing distances.")
-                    return
-                return file
+                else:
+                    return file
             else:
                 print(f"Distance map file {filename} not found. Computing distances.")
         
         frame_count = self.frames.shape[0]
-        
         height = self.frames.shape[1]
         width = self.frames.shape[2]
-        map = torch.zeros((frame_count, height, width), device=self.device, dtype=torch.float32)
-        for i, frame in enumerate(self.frames):
-            print(f"Precomputing distances for frame {i+1}/{frame_count}")
-            grid = frame.clone()
-            visited = torch.full(grid.shape, -1, device=self.device, dtype=torch.float32)
-            queue = deque([self.goal])
-            visited[self.goal] = 0 # distance to itself is 0
-            while queue:
-                cur_x, cur_y = queue.popleft()
-                up = (cur_x-1, cur_y)
-                down = (cur_x+1, cur_y)
-                left = (cur_x, cur_y-1)
-                right = (cur_x, cur_y+1)
-                for next_x, next_y in [up, down, left, right]:
-                    if next_x < 0 or next_x >= height:
-                        continue
-                    if next_y < 0 or next_y >= width:
-                        continue
-                    if visited[next_x, next_y] != -1: # already seen
-                        continue
-                    if grid[next_x, next_y] == 1: # check for obstacle
-                        continue
-                    
-                    # valid move
+        
+        print(f"Computing distances for {frame_count} frames with shape ({height}, {width})")
+        dist_map = torch.zeros((frame_count, height, width), dtype=torch.float32)
+        
+        if cores > 1:
+            frames_np = self.frames.cpu().numpy()
+            args = [(i, frames_np[i], self.goal, height, width) for i in range(frame_count)]
+            with Pool(processes=cores) as pool:
+                results = pool.map(compute_single_frame_distances, args)
+            for i, visited in results:
+                dist_map[i] = visited
+            print(f"Finished computing distances for {frame_count} frames")
+        else:
+            for i, frame in enumerate(self.frames):
+                print(f"Precomputing distances for frame {i+1}/{frame_count}")
+                grid = frame.clone()
+                visited = torch.full(grid.shape, -1, dtype=torch.float32)
+                queue = deque([self.goal])
+                visited[self.goal] = 0
+                while queue:
+                    cur_x, cur_y = queue.popleft()
+                    for next_x, next_y in [(cur_x-1, cur_y), (cur_x+1, cur_y), (cur_x, cur_y-1), (cur_x, cur_y+1)]:
+                        if next_x < 0 or next_x >= height:
+                            continue
+                        if next_y < 0 or next_y >= width:
+                            continue
+                        if visited[next_x, next_y] != -1:
+                            continue
+                        if frame[next_x, next_y] == 1:
+                            continue
                     visited[next_x, next_y] = visited[cur_x, cur_y] + 1
                     queue.append((next_x, next_y))
-            map[i] = visited
+                dist_map[i] = visited
+        
+        print(f"Distance map shape: {dist_map.shape}, Frames shape: {self.frames.shape}")
+        
         if save_to_file:
-            torch.save(map, filename)
+            torch.save(dist_map, filename)
             print(f"Saved precomputed distance map to {filename}")
-        return map
+        
+        return dist_map.to(device=self.device)
 
 
     def step(self, actions):
@@ -313,6 +367,7 @@ class harderEnv(gym.Env):
             kinect.videoPlayback(self.end_grid.detach().cpu().numpy(), extent=self.extent, steps=self.steps)
         else:
             kinect.printgrid(self.end_grid[1].detach().cpu().numpy(), self.extent, "random_agent_initial")
+        
     def _obs(self):
         if self.torchMode:
             obs = self.grid.clone()
@@ -324,16 +379,25 @@ class harderEnv(gym.Env):
                 obs = np.expand_dims(obs, axis=0)
         return obs
 
-
-    def step_env(self):
-        # ensure number of obstacles are currently on the grid
-        # if less, add more at y locations
-        # step obstacles positions
-        pass
     
 if __name__ == "__main__":
-    preprocess_frames() # COMMENT AFTER FIRST RUN
-    env = harderEnv()
+    default = False
+    count = 5
+    fps = 5
+    duration = 5
+    compute = True  # True to recompute distances
+    
+    preprocess_frames(default=default, duration=duration, fps=fps, count=count)
+    env = harderEnv(
+        default=default, 
+        distFile=f"occupancypipe/hardenv_distance_map_{duration}s_{fps}fps_ct{count}.pt", 
+        cores=6, 
+        count=count, 
+        compute=compute, 
+        duration=duration, 
+        fps=fps
+    )
+
     # action = torch.tensor([random.randint(0, 3) for _ in range(0, 499)], device=env.device, dtype=torch.long)  # random actions + explicit end
     action = torch.tensor([ 1 for _ in range(0, 499)], device=env.device, dtype=torch.long)
     for ep in range(3):
