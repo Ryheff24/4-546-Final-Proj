@@ -34,7 +34,8 @@ def load_frames(device):
 
 class harderEnv(gym.Env):
     metadata = {'render.modes': ['human']}
-    def __init__(self, torchMode=True):
+    def __init__(self, torchMode=True, cnn=False):
+        self.cnn = cnn
         # if torch.backends.mps.is_available():
         #     device = torch.device("mps")
         # elif torch.cuda.is_available():
@@ -54,7 +55,6 @@ class harderEnv(gym.Env):
         self.size = self.grid.shape
         self.steps = 0
         self.extent = self.extent
-        self.observation_space = spaces.Box(low=0, high=1, shape=tuple(self.grid.shape), dtype=np.float32)
         self.truncated = False
         self.terminated = False
         self.action_space = spaces.MultiDiscrete([4] * self.action_arr_size)  # actions per step 
@@ -64,6 +64,13 @@ class harderEnv(gym.Env):
         self.goal = (self.grid.shape[0]-1, self.grid.shape[0]//2) # goal point
         self.grid[self.start] = 2 
         self.grid[self.goal] = 2 
+        if cnn:
+            self.observation_space = spaces.Box(low=0, high=1, 
+                shape=(1, self.grid.shape[0], self.grid.shape[1]), 
+                dtype=np.float32)
+        else:
+            self.observation_space = spaces.Box(low=0, high=1, shape=tuple(self.grid.shape), dtype=np.float32)
+            
         # keep a sequence of visited positions for rendering the path
         
         self.path_positions = [self.start]
@@ -284,7 +291,8 @@ class harderEnv(gym.Env):
                 reward += failedrew
                 
         # print(f"steps_taken: {steps_taken}, total steps: {self.steps}, reward: {reward}, goalhit: {self.goalhit}, wallhit: {wallhit}, obstaclehit: {obstaclehit}, truncated: {self.truncated}, terminated: {self.terminated}")
-        return self.grid.clone() if self.torchMode else self.grid.clone().cpu().numpy(), float(reward), self.terminated, self.truncated, {'goal_hit': self.goalhit, 'wall_hits': wallhit, 'obstacle_hits': obstaclehit, 'steps_taken': steps_taken}
+        return self._obs(), float(reward), self.terminated, self.truncated, {'goal_hit': self.goalhit, 'wall_hits': wallhit, 'obstacle_hits': obstaclehit, 'steps_taken': steps_taken}
+
 
     def reset(self, *, seed=None, options=None):
         self.grid = self.start_grid[0].clone()
@@ -296,7 +304,8 @@ class harderEnv(gym.Env):
         self.terminated = False
         self.goalhit = False
         self.prev_distance = self.distances[0, self.start[0], self.start[1]]
-        return self.grid.clone() if self.torchMode else self.grid.clone().cpu().numpy(), {}
+        return self._obs(), {}
+    
     def render(self, video=False, save_path=None, block=True):
         from occupy import Kinect
         kinect = Kinect()
@@ -305,7 +314,16 @@ class harderEnv(gym.Env):
             kinect.videoPlayback(self.end_grid.detach().cpu().numpy(), extent=self.extent, steps=self.steps)
         else:
             kinect.printgrid(self.end_grid[1].detach().cpu().numpy(), self.extent, "random_agent_initial")
-
+    def _obs(self):
+        if self.torchMode:
+            obs = self.grid.clone()
+            if self.cnn:
+                obs = obs.unsqueeze(0)
+        else:
+            obs = self.grid.clone().cpu().numpy()
+            if self.cnn:
+                obs = np.expand_dims(obs, axis=0)
+        return obs
 
 
     def step_env(self):
