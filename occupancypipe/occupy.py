@@ -3,19 +3,17 @@ from fileinput import filename
 import os
 
 from sympy import N, comp
-os.environ["LIBFREENECT2_LOGGER_LEVEL"] = "error"
+# os.environ["LIBFREENECT2_LOGGER_LEVEL"] = "error"
 from cycler import K
 import open3d as o3d
 from time import perf_counter, sleep
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.widgets import RangeSlider
 from freenect2 import Device, FrameType
 import random
 import time
 from scipy import ndimage
 from queue import Queue
-from freenect2 import Device, FrameType
 import freenect2
 
 # Fixing the queue of hte freenect2 library to avoid blocking on full queue
@@ -49,7 +47,7 @@ class Kinect:
             self.inputdir = inputdir
         else:
             self.inputdir = '/Users/ryanheffernan/Documents/Buffalo/CSE446/CSE-4-546-Final-Project-Team-49/occupancypipe'
-        pass
+    
     def loadPointCloud(self, filename, view=False):
         points = []
         with open(filename, 'r') as f:

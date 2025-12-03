@@ -1,5 +1,3 @@
-from math import dist
-import re
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -7,43 +5,55 @@ import matplotlib.pyplot as plt
 import random
 import os
 
-from occupy import Kinect
+
 import torch
 from collections import deque
 
-# if torch.backends.mps.is_available():
-#     device = torch.device("mps")
-# elif torch.cuda.is_available():
-#     device = torch.device("cuda")
-# else:
-#     device = torch.device("cpu")
-# print(f"env Using device: {device}")
-device = torch.device("cpu")
-
-kinect = Kinect()
-calibrateframe = kinect.loadFrame("occupancypipe/frames/calibration_frame.npy", type='npy', view=False)
-kinect.calibrate(calibrateframe)
-video = kinect.loadVideo("occupancypipe/videos/video_9489441.npy")
-frames, extent = kinect.createVideo(video, z_min_threshold=-2.1, z_max_threshold=-1)
-frames = torch.from_numpy(np.stack(frames)).to(device=device, dtype=torch.float32)
 
 
+def preprocess_frames():
+    frame_name = "occupancypipe/frames/processed_frames.npy"
+    extent_name = "occupancypipe/frames/extent.npy"
+    if os.path.exists(frame_name) and os.path.exists(extent_name):
+        return
+    from occupy import Kinect
+    kinect = Kinect()
+    calibrateframe = kinect.loadFrame("occupancypipe/frames/calibration_frame.npy", type='npy', view=False)
+    kinect.calibrate(calibrateframe)
+    video = kinect.loadVideo("occupancypipe/videos/video_9489441.npy")
+    frames, extent = kinect.createVideo(video, z_min_threshold=-2.1, z_max_threshold=-1)
+    frames = torch.from_numpy(np.stack(frames)).to(device=torch.device("cpu"), dtype=torch.float32)
+    np.save("occupancypipe/frames/processed_frames.npy", frames.cpu().numpy())
+    np.save("occupancypipe/frames/extent.npy", extent)
 
+def load_frames(device):
+    frames = np.load("occupancypipe/frames/processed_frames.npy")
+    extent = np.load("occupancypipe/frames/extent.npy")
+    frames = torch.from_numpy(frames).to(device=device, dtype=torch.float32)
+    return frames, extent
 
 class harderEnv(gym.Env):
     metadata = {'render.modes': ['human']}
     def __init__(self, torchMode=True):
-
+        # if torch.backends.mps.is_available():
+        #     device = torch.device("mps")
+        # elif torch.cuda.is_available():
+        #     device = torch.device("cuda")
+        # else:
+        device = torch.device("cpu")
+        print(f"env Using device: {device}")
+        self.device = device
         super().__init__()
+        self.frames, self.extent = load_frames(self.device)
         self.action_arr_size = 12 # actions per step.
         
         # self.kinect.videoPlayback(frames, extent=extent)
-        self.start_grid = frames
+        self.start_grid = self.frames
         self.grid = self.start_grid[0].clone()
         self.end_grid = torch.zeros_like(self.start_grid).to(device)
         self.size = self.grid.shape
         self.steps = 0
-        self.extent = extent
+        self.extent = self.extent
         self.observation_space = spaces.Box(low=0, high=1, shape=tuple(self.grid.shape), dtype=np.float32)
         self.truncated = False
         self.terminated = False
@@ -55,10 +65,11 @@ class harderEnv(gym.Env):
         self.grid[self.start] = 2 
         self.grid[self.goal] = 2 
         # keep a sequence of visited positions for rendering the path
+        
         self.path_positions = [self.start]
         self.gridhistory = []
         self.torchMode = torchMode
-        self.max_steps = frames.shape[0] - 1
+        self.max_steps = self.frames.shape[0] - 1
         self.distances = self.precompute_distances(load_from_file=True)
         self.prev_distance = self.distances[0, self.start[0], self.start[1]]
     
@@ -66,23 +77,23 @@ class harderEnv(gym.Env):
         if load_from_file:
             if os.path.exists(filename):
                 print(f"Loading precomputed distance map from {filename}")
-                file = torch.load(filename, map_location=device)
-                if file.shape != frames.shape:
-                    print(f"Distance map shape {file.shape} does not match frames shape {frames.shape}. Recomputing distances.")
+                file = torch.load(filename, map_location=self.device)
+                if file.shape != self.frames.shape:
+                    print(f"Distance map shape {file.shape} does not match frames shape {self.frames.shape}. Recomputing distances.")
                     return
                 return file
             else:
                 print(f"Distance map file {filename} not found. Computing distances.")
         
-        frame_count = frames.shape[0]
+        frame_count = self.frames.shape[0]
         
-        height = frames.shape[1]
-        width = frames.shape[2]
-        map = torch.zeros((frame_count, height, width), device=device, dtype=torch.float32)
-        for i, frame in enumerate(frames):
+        height = self.frames.shape[1]
+        width = self.frames.shape[2]
+        map = torch.zeros((frame_count, height, width), device=self.device, dtype=torch.float32)
+        for i, frame in enumerate(self.frames):
             print(f"Precomputing distances for frame {i+1}/{frame_count}")
             grid = frame.clone()
-            visited = torch.full(grid.shape, -1, device=device, dtype=torch.float32)
+            visited = torch.full(grid.shape, -1, device=self.device, dtype=torch.float32)
             queue = deque([self.goal])
             visited[self.goal] = 0 # distance to itself is 0
             while queue:
@@ -114,7 +125,7 @@ class harderEnv(gym.Env):
     def step(self, actions):
 
         if isinstance(actions, np.ndarray):
-            actions = torch.from_numpy(actions).to(device=device, dtype=torch.long)
+            actions = torch.from_numpy(actions).to(device=self.device, dtype=torch.long)
         else:
             actions = actions.long()
         # Accept either a single action (int) or a sequence of actions
@@ -131,17 +142,17 @@ class harderEnv(gym.Env):
         
         # REWARD STRUCTURE
         timepen = -0.1
-        wallpen = -5
-        obstaclepen = -10
+        # wallpen = -5
+        # obstaclepen = -10
         goalrew = 150
         failedrew = -100
         distancepen = 2
-        
+        deathpen = -50
         wallhit = 0
         obstaclehit = 0
+        dead = False
         # print(f"Processing {len(actions)} actions at step {self.steps}")
         for action in actions:
-            
             steps_taken += 1
             
             action = action.item()
@@ -151,12 +162,14 @@ class harderEnv(gym.Env):
                 #up
                 if self.agent_pos[0] <= 0:
                     # above is wall
-                    wallhit += 1
-                    continue
+                    # wallhit += 1
+                    dead = True
+                    break
                 elif self.grid[self.agent_pos[0]-1, self.agent_pos[1]] == 1:
                     # above is obstacle
-                    obstaclehit += 1
-                    continue
+                    # obstaclehit += 1
+                    dead = True
+                    break
                 else:
                     # valid move
                     self.agent_pos = (self.agent_pos[0]-1, self.agent_pos[1])
@@ -171,12 +184,14 @@ class harderEnv(gym.Env):
                 # down
                 if self.agent_pos[0] >= self.grid.shape[0]-1:
                     # below is wall
-                    wallhit += 1
-                    continue
+                    # wallhit += 1
+                    dead = True
+                    break
                 elif self.grid[self.agent_pos[0]+1, self.agent_pos[1]] == 1:
                     # below is obstacle
-                    obstaclehit += 1
-                    continue
+                    # obstaclehit += 1
+                    dead = True
+                    break
                 else:
                     # valid move
                     self.agent_pos = (self.agent_pos[0]+1, self.agent_pos[1])
@@ -192,12 +207,14 @@ class harderEnv(gym.Env):
                 # left                
                 if self.agent_pos[1] <= 0:
                     # left is wall
-                    wallhit += 1
-                    continue
+                    # wallhit += 1
+                    dead = True
+                    break
                 elif self.grid[self.agent_pos[0], self.agent_pos[1]-1] == 1:
                     # left is obstacle
-                    obstaclehit += 1
-                    continue
+                    # obstaclehit += 1
+                    dead = True
+                    break
                 else:
                     # valid move
                     self.agent_pos = (self.agent_pos[0], self.agent_pos[1]-1)
@@ -212,12 +229,14 @@ class harderEnv(gym.Env):
                 # right
                 if self.agent_pos[1] >= self.grid.shape[1]-1:
                     # right is wall
-                    wallhit += 1
-                    continue
+                    # wallhit += 1
+                    dead = True
+                    break
                 elif self.grid[self.agent_pos[0], self.agent_pos[1]+1] == 1:
                     # right is obstacle
-                    obstaclehit += 1
-                    continue
+                    # obstaclehit += 1
+                    dead = True
+                    break
                 else:
                     # valid move
                     self.agent_pos = (self.agent_pos[0], self.agent_pos[1]+1)
@@ -239,11 +258,15 @@ class harderEnv(gym.Env):
         self.grid = self.start_grid[self.steps].clone()
         # print(f"shape grid: {self.grid.shape} at step {self.steps}")
         self.steps += 1 
-        
-        if self.goalhit:
-            reward += goalrew
-            print(f"Goal hit at step {self.steps}!")
+        if dead:
+            reward += deathpen
+            # print(f"Agent died at step {self.steps}!")
             self.terminated = True
+        elif self.goalhit:
+            reward += goalrew
+            self.terminated = True
+            print(f"Goal hit at step {self.steps}!")
+            
         else: 
             # calc distance
             diff = self.prev_distance - cur_distance
@@ -251,7 +274,8 @@ class harderEnv(gym.Env):
             self.prev_distance = cur_distance
 
         # print(f"steps_taken: {steps_taken}, wallhit: {wallhit}, obstaclehit: {obstaclehit}")
-        reward = reward + (steps_taken * timepen + wallhit * wallpen + obstaclehit * obstaclepen)
+        # reward = reward + (steps_taken * timepen + wallhit * wallpen + obstaclehit * obstaclepen)
+        reward = reward + (steps_taken * timepen)
         
         if not self.terminated and self.steps >= self.max_steps:
             self.truncated = True
@@ -268,13 +292,14 @@ class harderEnv(gym.Env):
         self.steps = 0
         self.agent_pos = self.start
         self.path_positions = [self.start]
-        # self.grid[self.start] = 2 
-        # self.grid[self.goal] = 2 
         self.truncated = False
         self.terminated = False
         self.goalhit = False
+        self.prev_distance = self.distances[0, self.start[0], self.start[1]]
         return self.grid.clone() if self.torchMode else self.grid.clone().cpu().numpy(), {}
     def render(self, video=False, save_path=None, block=True):
+        from occupy import Kinect
+        kinect = Kinect()
         if video:
             print(self.steps)
             kinect.videoPlayback(self.end_grid.detach().cpu().numpy(), extent=self.extent, steps=self.steps)
@@ -290,10 +315,11 @@ class harderEnv(gym.Env):
         pass
     
 if __name__ == "__main__":
+    preprocess_frames() # COMMENT AFTER FIRST RUN
     env = harderEnv()
-    action = torch.tensor([random.randint(0, 3) for _ in range(0, 499)], device=device, dtype=torch.long)  # random actions + explicit end
-    # action = torch.tensor([ 1 for _ in range(0, 499)], device=device, dtype=torch.long)
-    for ep in range(1):
+    # action = torch.tensor([random.randint(0, 3) for _ in range(0, 499)], device=env.device, dtype=torch.long)  # random actions + explicit end
+    action = torch.tensor([ 1 for _ in range(0, 499)], device=env.device, dtype=torch.long)
+    for ep in range(3):
         obs, _ = env.reset()
         
         total_reward = 0.0
