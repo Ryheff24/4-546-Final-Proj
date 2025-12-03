@@ -8,7 +8,6 @@ import torch
 from collections import deque
 from multiprocessing import Pool
 
-
 def compute_single_frame_distances(args):
     i, frame_np, goal, height, width = args
     frame = torch.from_numpy(frame_np)
@@ -29,7 +28,6 @@ def compute_single_frame_distances(args):
             visited[next_x, next_y] = visited[cur_x, cur_y] + 1
             queue.append((next_x, next_y))
     return i, visited
-
 
 def preprocess_frames(default=True, duration=5, fps=5, count=4):
     if default:

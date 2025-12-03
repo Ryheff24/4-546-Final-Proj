@@ -1,3 +1,5 @@
+from os import times
+import time
 from unittest import skip
 from flask import cli
 import gymnasium as gym
@@ -18,6 +20,7 @@ def evaluate(model_name,env_name="2d-occupancy", episodes=100, render=True, plot
     model = PPO.load(model_name, env=env)
     total_rewards = []
     rewardsOverEps = []
+    ran = False
     for ep in range(episodes):
         rew = 0
         obs, _ = env.reset()
@@ -29,7 +32,9 @@ def evaluate(model_name,env_name="2d-occupancy", episodes=100, render=True, plot
             rewardArr.append(rewards)
             if term or trunc:
                 break
-        if render and rew >= 875: env.render(video=True)
+        if render and rew >= 875 and not ran: 
+            env.render(video=True)
+            ran = True
         total_rewards.append(rew)
         rewardsOverEps.append(rewardArr)
         if plot: print(f"Episode {ep+1}: Reward = {rew:.2f}")
@@ -64,25 +69,8 @@ def retrain(model_name, total_timesteps=1, n_envs=16, cnn=False):
     return model_name+"_retrained"
 
 
-def main():
-    filename = input("Enter a name to save the model: ")
-    model_type = input("Enter model type (cnn, mlp): ")
-    while model_type not in ['cnn', 'mlp']:
-        model_type = input("Invalid model type. Enter model type (cnn, mlp): ")
-    modelname = f"{filename}"
-    cnn= model_type == 'cnn'
-    skip = input("Skip training? (y/n): ")
-    if skip.lower() == 'y' or skip.lower() == 'yes'or skip == '':
-        evaluate(modelname, plot=True, render=True, cnn=cnn)
-        return
-    
-    envcount = input("Enter number(n) of envs(0 >= n <= 32): ")
-    envs = 16 if envcount == '' else int(envcount)
-    while envs < 1 or envs > 32:
-        envs = int(input("Invalid number of envs. Enter number(n) of envs(0 >= n <= 32): "))
-        
-    n_envs = envs
-    if model_type == "mlp":
+def train(model_name, total_timesteps=1000000, n_envs=16, cnn=False):
+    if not cnn:
         device = torch.device("cpu")
     else:
         if torch.backends.mps.is_available():
@@ -102,10 +90,41 @@ def main():
                 policy_kwargs=dict(normalize_images=False))
     else:
         model = PPO("MlpPolicy", env, verbose=1, tensorboard_log="./ppo_2d_tensorboard/")
-    model.learn(total_timesteps=1000000, tb_log_name=f"2D_{modelname}")
-    model.save(modelname)
+    model.learn(total_timesteps=total_timesteps, tb_log_name=f"{model_name}")
+    model.save(model_name)
 
     # del model # remove to demonstrate saving and loading
-    evaluate(modelname, plot=True, cnn=cnn)
+    evaluate(model_name, plot=True, cnn=cnn)
+
+def main():
+    filename = input("Enter a name to save the model: ")
+    model_type = "mlp"
+    mode = input("Enter model type (train, retrain, evaluate): ")
+    modesarr = ['train', 't', 'retrain', 'r', 're', 'evaluate', 'e', 'eval']
+    while mode.lower() not in modesarr:
+        mode = input("Invalid mode. Enter mode (train, retrain, evaluate): ")
+        
+        
+    if mode.lower() in ['evaluate', 'e', 'eval']:
+        evaluate(filename, plot=True, render=True)
+        return
+    
+    # while model_type not in ['cnn', 'mlp']:
+    #     model_type = input("Invalid model type. Enter model type (cnn, mlp): ")
+    model_name = f"{filename}"
+    envcount = input("Enter number(n) of envs(0 >= n <= 32): ")
+    envs = 16 if envcount == '' else int(envcount)
+    while envs < 1 or envs > 32:
+        envs = int(input("Invalid number of envs. Enter number(n) of envs(0 >= n <= 32): "))
+    n_envs = envs
+    
+    if mode.lower() in ['train', 't']:
+        train(model_name, n_envs=n_envs)
+        return
+
+    if mode.lower() in ['retrain', 'r', 're']:
+        retrain(model_name, n_envs=n_envs)
+        return
+    
 if __name__ == "__main__":
     main()
