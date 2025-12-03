@@ -1,7 +1,6 @@
 import os
 os.environ["LIBFREENECT2_LOGGER_LEVEL"] = "error"
 os.environ["LIBUSB_DEBUG"] = "0"
-from cycler import K
 import open3d as o3d
 from time import perf_counter
 import numpy as np
@@ -396,5 +395,5 @@ if __name__ == "__main__":
     # time.sleep(10)
     # run(record=False, convert=True, playback=True, duration=5, fps=5, count=4) # 4 is medium difficulty
     run(record=False, convert=True, playback=True, duration=5, fps=5, count=5) # 5 is easy
-    run(record=False, convert=True, playback=True, duration=5, fps=5, count=6) # 6 is hard
+    # run(record=False, convert=True, playback=True, duration=5, fps=5, count=6) # 6 is hard
     

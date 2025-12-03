@@ -43,6 +43,7 @@ def preprocess_frames(default=True, duration=5, fps=5, count=4):
         calibrateframe = kinect.loadFrame("occupancypipe/frames/calibration_frame.npy", type='npy', view=False)
         kinect.calibrate(calibrateframe)
         video = kinect.loadVideo("occupancypipe/videos/video_9489441.npy")
+        # skip denoise for default
         frames, extent = kinect.createVideo(video, z_min_threshold=-2.1, z_max_threshold=-1, crop=40)
         frames = torch.from_numpy(np.stack(frames)).to(device=torch.device("cpu"), dtype=torch.float32)
         np.save("occupancypipe/frames/processed_frames.npy", frames.cpu().numpy())
@@ -366,7 +367,10 @@ class harderEnv(gym.Env):
             print(self.steps)
             kinect.videoPlayback(self.end_grid.detach().cpu().numpy(), extent=self.extent, steps=self.steps)
         else:
-            kinect.printgrid(self.end_grid[1].detach().cpu().numpy(), self.extent, "random_agent_initial")
+            if self.steps == 0:
+                kinect.printgrid(self.start_grid[0].detach().cpu().numpy(), self.extent, "random_agent_initial")
+            else:
+                kinect.printgrid(self.end_grid[self.steps].detach().cpu().numpy(), self.extent, "random_agent_initial")
         
     def _obs(self):
         if self.torchMode:
@@ -382,10 +386,10 @@ class harderEnv(gym.Env):
     
 if __name__ == "__main__":
     default = False
-    count = 5
+    count = 6
     fps = 5
     duration = 5
-    compute = True  # True to recompute distances
+    compute = False  # True to recompute distances
     
     preprocess_frames(default=default, duration=duration, fps=fps, count=count)
     env = harderEnv(
@@ -397,6 +401,7 @@ if __name__ == "__main__":
         duration=duration, 
         fps=fps
     )
+    env.render()
 
     # action = torch.tensor([random.randint(0, 3) for _ in range(0, 499)], device=env.device, dtype=torch.long)  # random actions + explicit end
     action = torch.tensor([ 1 for _ in range(0, 499)], device=env.device, dtype=torch.long)

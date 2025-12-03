@@ -47,6 +47,7 @@ def evaluate(model_name,env_name="2d-occupancy", episodes=100, render=True, plot
         plt.title(f"Evaluation Rewards per One Episode - {env_name}")
         plt.close('all')
     return avg
+
 def retrain(model_name, total_timesteps=1, n_envs=16, cnn=False):
     env = SubprocVecEnv([lambda: harderEnv(torchMode=False, cnn=cnn) for _ in range(n_envs)])
     env = VecMonitor(env)
