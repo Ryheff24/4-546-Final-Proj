@@ -11,7 +11,6 @@ from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
-
 from hardenv import harderEnv
     
 def evaluate(model_name,env_name="2d-occupancy", episodes=100, render=True, plot=False, cnn=False):# -> list:
@@ -63,7 +62,9 @@ def retrain(model_name, total_timesteps=1, n_envs=16, cnn=False):
                 ent_coef=0.01,
                 policy_kwargs=dict(normalize_images=False))
     else:
-        model = PPO.load(model_name, env=env)
+        model = PPO.load(model_name, env=env,
+                learning_rate=3e-5,
+                ent_coef=0.05)
     model.learn(total_timesteps=total_timesteps, tb_log_name=f"2D_{model_name}_retrain")
     model.save(model_name+"_retrained")
     return model_name+"_retrained"
@@ -97,6 +98,14 @@ def train(model_name, total_timesteps=1000000, n_envs=16, cnn=False):
     evaluate(model_name, plot=True, cnn=cnn)
 
 def main():
+    print("You must select the environment by inserting the duration, fps, and count values used by the video file.")
+    duration = int(input("Enter duration (seconds): "))
+    fps = int(input("Enter frames per second (fps): "))
+    count = int(input("Enter count (difficulty level): "))
+    filename = f"occupancypipe/frames/calibration_frame_{duration}x{fps}{count}.npy"
+    # check file exists
+    
+    
     filename = input("Enter a name to save the model: ")
     model_type = "mlp"
     mode = input("Enter model type (train, retrain, evaluate): ")
@@ -123,7 +132,9 @@ def main():
         return
 
     if mode.lower() in ['retrain', 'r', 're']:
-        retrain(model_name, n_envs=n_envs)
+        time_steps = input("Enter total timesteps to retrain( default 500000 ): ")
+        total_timesteps = 500000 if time_steps == '' else int(time_steps)
+        retrain(model_name, n_envs=n_envs, total_timesteps=total_timesteps)
         return
     
 if __name__ == "__main__":

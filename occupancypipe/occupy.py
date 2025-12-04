@@ -118,6 +118,7 @@ class Kinect:
         
         ret = np.array(arr, dtype=object)
         return ret
+    
     def frameSkip(self, video, skip=2):
         return video[::skip]
     
@@ -325,7 +326,7 @@ class Kinect:
         # printgrid(occupancy_grid, extent, "SavedFrame")
         return occupancy_grid, extent
 
-    def createVideo(self, video, skipCalibration=False, grid_resolution=0.01, z_min_threshold=-1.9, z_max_threshold=-0.5, crop=20):
+    def createVideo(self, video, skipCalibration=False, grid_resolution=0.02, z_min_threshold=-1.9, z_max_threshold=-0.5, crop=20):
         frames = []
         for i, points in enumerate(video):
             occupancy_grid, extent = self.create(
@@ -338,7 +339,7 @@ class Kinect:
             )
             frames.append(occupancy_grid)
             # printgrid(occupancy_grid, extent, f"VideoFrame_{i}")
-        print(frames[1].shape)
+        # print(frames[1].shape)
         return frames, extent
 
     def videoPlayback(self, frames, extent, steps=None):  
@@ -366,18 +367,19 @@ class Kinect:
         print(f"Y range: [{points[:, 1].min():.3f}, {points[:, 1].max():.3f}]")
         return points
 
-def run(record=False,convert=True, playback=True,  duration=10, fps=5, count=4):
+def run( record=False,convert=True, playback=True,  duration=10, fps=5, count=4):
     kinect = Kinect()
     # time.sleep(3)
     if record:
         video = kinect.record(duration=duration, fps=fps, playback=playback)
+        
         kinect.saveVideo(video, compress=False, filename=f"video{duration}sec{fps}fps{count}.npy")
         kinect.saveVideo(video, compress=True, filename=f"video{duration}sec{fps}fps{count}.npz")
         kinect.saveNPY(video[0], filename=f"calibration_frame_{duration}x{fps}{count}.npy")
         calibration_frame = video[0]
     if convert:
-        z_min_threshold=-2.8
-        z_max_threshold=-1.5
+        z_min_threshold=-1.8
+        z_max_threshold=-0.5
         video = kinect.loadVideo(f"occupancypipe/videos/video{duration}sec{fps}fps{count}.npy")
         calibration_frame = kinect.loadFrame(f"occupancypipe/frames/calibration_frame_{duration}x{fps}{count}.npy", type='npy', view=False)
         kinect.calibrate(calibration_frame, z_min_threshold=z_min_threshold, z_max_threshold=z_max_threshold)
@@ -386,14 +388,17 @@ def run(record=False,convert=True, playback=True,  duration=10, fps=5, count=4):
             video, 
             z_min_threshold=z_min_threshold, 
             z_max_threshold=z_max_threshold,
-            crop=40)
+            crop=1,
+            )
+        print("shape: ", np.array(frames_5x5).shape)
         kinect.videoPlayback(frames_5x5, extent_5x5)
     
 
 
 if __name__ == "__main__":
-    # time.sleep(10)
+    time.sleep(5)
     # run(record=False, convert=True, playback=True, duration=5, fps=5, count=4) # 4 is medium difficulty
-    run(record=False, convert=True, playback=True, duration=5, fps=5, count=5) # 5 is easy
+    # run(record=False, convert=True, playback=True, duration=5, fps=5, count=5) # 5 is easy
     # run(record=False, convert=True, playback=True, duration=5, fps=5, count=6) # 6 is hard
     
+    run(record=False, convert=True, playback=False, duration=5, fps=5, count=13) # new
