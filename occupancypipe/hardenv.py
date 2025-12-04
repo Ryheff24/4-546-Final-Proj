@@ -399,14 +399,6 @@ class Envs():
         }
         self.save()
     def init_env(self, duration, fps, count):
-        key = f"{duration}-{fps}-{count}"
-        processed_frames_path = self.data[key]['processed_frames_path']
-        # calibration_frame_path = self.data[key]['calibration_frame_path']
-        extent_frame_path = self.data[key]['extent_frame_path']
-        distances_path = self.data[key]['distances_path']
-        z_min_threshold = self.data[key]['z_min_threshold']
-        z_max_threshold = self.data[key]['z_max_threshold']
-        crop = self.data[key]['crop']
         self.preprocess_frames(default=False, duration=duration, fps=fps, count=count)
             
 
@@ -427,10 +419,15 @@ class Envs():
         with open(self.json_path, 'w') as f:
             json.dump(self.data, f, indent=4)
             
-    def reset_env_files(self, duration, fps, count):
+    def reset_env_files(self,default, duration=None, fps=None, count=None):
         # grab files paths from self.data and try to delete the file at that path
-
-        key = f"{duration}-{fps}-{count}"
+        if default:
+            key = 'default'
+        else:
+            if duration is None or fps is None or count is None:
+                print("Missing Key - reset env files.")
+                return
+            key = f"{duration}-{fps}-{count}"
         if key in self.data:
             data = self.data[key]
             files_to_delete = [
@@ -558,7 +555,7 @@ if __name__ == "__main__":
     # compute = False  # True to recompute distances
     
     # preprocess_frames(default=default, duration=duration, fps=fps, count=count)
-    # env = harderEnv(
+    # env = harderEnv(q
     #     default=default,  
     #     duration=duration, 
     #     fps=fps,
