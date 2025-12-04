@@ -42,7 +42,7 @@ def load_frames(device, default=True, duration=5, fps=5, count=4):
         extent = np.load(f"occupancypipe/frames/extent_{duration}sec{fps}fps{count}.npy")
     frames = torch.from_numpy(frames).to(device=device, dtype=torch.float32)
     return frames, extent
-
+# THE DEFAULT FRAME IS BROKEN DO NOT USE.
 class harderEnv(gym.Env):
     metadata = {'render.modes': ['human']}
     def __init__(self, torchMode=True, cnn=False, default=True, duration=5, fps=5, count=4, 
@@ -366,7 +366,7 @@ class Envs():
             'count': 0,
             'z_min_threshold': -2.1, 
             'z_max_threshold': -1, 
-            'crop': 40
+            'crop': 20
         }
         
         self.data = {}
@@ -386,7 +386,7 @@ class Envs():
         self.data[key] = {
             'video_path': f"occupancypipe/videos/video{duration}sec{fps}fps{count}.npy",
             'processed_frames_path': f"occupancypipe/frames/processed_frames_{duration}sec{fps}fps{count}.npy",
-            'calibration_frame_path': f"occupancypipe/frames/calibration_frame_{duration}x{fps}{count}.npy",
+            # 'calibration_frame_path': f"occupancypipe/frames/calibration_frame_{duration}x{fps}{count}.npy",
             'extent_frame_path': f"occupancypipe/frames/extent_{duration}sec{fps}fps{count}.npy",
             'distances_path': f"occupancypipe/hardenv_distance_map_{duration}s_{fps}fps_ct{count}.pt",
             'processed': False,
@@ -398,8 +398,8 @@ class Envs():
             'crop': crop
         }
         self.save()
-    def init_env(self, duration, fps, count):
         self.preprocess_frames(default=False, duration=duration, fps=fps, count=count)
+
             
 
     def update(self, fps, duration, count, z_min_threshold=None, z_max_threshold=None, crop=None):
@@ -431,9 +431,7 @@ class Envs():
         if key in self.data:
             data = self.data[key]
             files_to_delete = [
-                data['video_path'],
                 data['processed_frames_path'],
-                data['calibration_frame_path'],
                 data['extent_frame_path'],
                 data['distances_path']
             ]
@@ -442,15 +440,18 @@ class Envs():
                     os.remove(file_path)
             self.data[key]['processed'] = False
             self.save()
-        
-    def reset_env(self, duration, fps, count):
-        key = f"{duration}-{fps}-{count}"
+    
+    def reset_env(self, default, duration, fps, count):
+        if default:
+            key = 'default'
+        else:
+            key = f"{duration}-{fps}-{count}"
         if key in self.data:
             env_data = self.data[key]
             env = harderEnv(
                 torchMode=True,
                 cnn=False,
-                default=False,
+                default=default,
                 duration=env_data['duration'],
                 fps=env_data['fps'],
                 count=env_data['count'],
@@ -462,6 +463,13 @@ class Envs():
             return None
         
     def test(self, default=True, duration=5, fps=5, count=4):
+        if default:
+            key = 'default'
+        else:
+            key = f"{duration}-{fps}-{count}"
+            if not self.data[key]["processed"]:
+                self.preprocess_frames(default=default, duration=duration, fps=fps, count=count)
+        print(f"Testing environment: {key}")
         env = harderEnv(
             default=default,  
             duration=duration, 
@@ -469,7 +477,7 @@ class Envs():
             count=count,
             cores=6
         )
-        env.render()
+        # env.render()
 
         # action = torch.tensor([random.randint(0, 3) for _ in range(0, 499)], device=env.device, dtype=torch.long)  # random actions + explicit end
         action = torch.tensor([ 1 for _ in range(0, 499)], device=env.device, dtype=torch.long)
@@ -524,70 +532,63 @@ class Envs():
         # np.save(f"occupancypipe/frames/extent_{duration}sec{fps}fps{count}.npy", extent)
         
         if data['processed'] and os.path.exists(data['processed_frames_path']) and os.path.exists(data['extent_frame_path']):
-            print("Processed frames already exist. Skipping preprocessing.")
+            # print("Processed frames already exist. Skipping preprocessing.")
             return
         from occupy import Kinect
         kinect = Kinect()
-        calibrateframe = kinect.loadFrame(data['calibration_frame_path'], type='npy', view=False)
         video = kinect.loadVideo(data['video_path'])
+        
+        calibrateframe = video[0]
+
+
         if default:
-            kinect.calibrate(calibrateframe)
-            frames, extent = kinect.createVideo(video, z_min_threshold=data["z_min_threshold"], z_max_threshold=data["z_max_threshold"], crop=data["crop"])
+            kinect.calibrate(calibrateframe, z_min_threshold=data["z_min_threshold"], z_max_threshold=data["z_max_threshold"])
+            frames, extent = kinect.createVideo(video)
         else:
             kinect.calibrate(calibrateframe, z_min_threshold=data["z_min_threshold"], z_max_threshold=data["z_max_threshold"])
             frames, extent = kinect.createVideo(video, z_min_threshold=data["z_min_threshold"], z_max_threshold=data["z_max_threshold"], crop=data["crop"])
             frames = [kinect.denoise(frame) for frame in frames]
         
         frames = torch.from_numpy(np.stack(frames)).to(device=torch.device("cpu"), dtype=torch.float32)
+        frames = kinect.frameSkip(frames, skip=3)
+        # print(f"shape after frame skip: {frames.shape}")
         np.save(data['processed_frames_path'], frames.cpu().numpy())
+        print(data['processed_frames_path'])
         np.save(data['extent_frame_path'], extent)
         data['processed'] = True
         self.save()
-
+    def reprocess_all(self):
+        for key in self.data:
+            if key == 'default':
+                continue
+            env = self.data[key]
+            self.preprocess_frames(
+                default=False,
+                duration=env['duration'],
+                fps=env['fps'],
+                count=env['count']
+            )
         
 if __name__ == "__main__":
-    default = True
     envs = Envs()
-    envs.test()
-    # # these are details are decided from the occupy function to make loading new data easier
-    # fps = 5
-    # duration = 5
-    # count = 6
+    # envs.reset_env_files(default=False)
+    duration = 5
+    fps = 5
+    count = 13
+    crop = 1
+    z_min_threshold = -1.8
+    z_max_threshold = -0.5
+    for i in range(8, 14):
+        envs.add(duration=duration, fps=fps, count=i, z_min_threshold=z_min_threshold, z_max_threshold=z_max_threshold, crop=crop)
+
+    #     envs.reset_env_files(default=False, duration=5, fps=5, count=i)
+    # # envs.add(duration=5, fps=5, count=7, z_min_threshold=-1.8, z_max_threshold=-0.5, crop=40)
+    # envs.add(duration=duration, fps=fps, count=count, z_min_threshold=z_min_threshold, z_max_threshold=z_max_threshold, crop=crop)
+    # envs.test(default=False, duration=duration, fps=fps, count=count)
+    # envs.test(default=False, duration=5, fps=5, count=8)
+    # envs.test(default=False, duration=5, fps=5, count=9)
+    # envs.test(default=False, duration=5, fps=5, count=10)
+    # envs.test(default=False, duration=5, fps=5, count=11)
+    # envs.test(default=False, duration=5, fps=5, count=12)
+    # envs.test(default=False, duration=5, fps=5, count=13)
     
-    # compute = False  # True to recompute distances
-    
-    # preprocess_frames(default=default, duration=duration, fps=fps, count=count)
-    # env = harderEnv(q
-    #     default=default,  
-    #     duration=duration, 
-    #     fps=fps,
-    #     count=count,
-    #     cores=6
-    # )
-    # env.render()
-
-    # action = torch.tensor([random.randint(0, 3) for _ in range(0, 499)], device=env.device, dtype=torch.long)  # random actions + explicit end
-    # action = torch.tensor([ 1 for _ in range(0, 499)], device=env.device, dtype=torch.long)
-    # for ep in range(3):
-    #     obs, _ = env.reset()
-        
-    #     total_reward = 0.0
-    #     terminated = False
-    #     truncated = False
-    #     x = 0
-    #     while True:
-
-    #         actions = action[x: x+env.action_arr_size]
-    #         # action = torch.tensor([ 1 for _ in range(0, 192)] + [4], device=device, dtype=torch.long)
-    #         # print(len(action))
-    #         obs, reward, terminated, truncated, info = env.step(actions)
-    #         x += env.action_arr_size    
-            
-    #         total_reward += reward
-
-    #         if truncated or terminated:
-    #             print(f"Reward: {reward}, Total Reward: {total_reward}, obstacle hits: {info['obstacle_hits']}, wall hits: {info['wall_hits']}, goal hit: {info['goal_hit']}, steps taken: {info['steps_taken']}, terminated: {terminated}, truncated: {truncated}")
-                
-    #             break
-    #     # kinect.printgrid(obs.detach().cpu().numpy(), env.extent, "hardenv_final")
-    # env.render(video=True)
