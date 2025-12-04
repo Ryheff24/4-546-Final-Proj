@@ -173,11 +173,19 @@ class harderEnv(gym.Env):
         # if the goal is hit but the episode isnt ended, dont reward success
         
         # REWARD STRUCTURE
-        timepen = -0.05
-        goalrew = 200
-        failedrew = -50
-        distancepen = 3
-        deathpen = -25
+        # timepen = -0.05
+        # goalrew = 200
+        # failedrew = -50
+        # distancepen = 3
+        # deathpen = -25
+        
+        #NEW
+        timepen = -0.01
+        goalrew = 50
+        failedrew = -10
+        distancepen = 1
+        deathpen = -5     
+        
         wallhit = 0
         obstaclehit = 0
         dead = False

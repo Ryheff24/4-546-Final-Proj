@@ -33,7 +33,7 @@ def evaluate(envinfo, model_name,env_name="2d-occupancy", episodes=100, render=T
             rewardArr.append(rewards)
             if term or trunc:
                 break
-        if render and rew >= 875 and not ran: 
+        if render and not ran: 
             env.render(video=True)
             ran = True
         total_rewards.append(rew)
@@ -87,14 +87,14 @@ def train(envinfo, model_name, total_timesteps=1000000, n_envs=16, ):
         
     env = SubprocVecEnv([lambda: harderEnv(torchMode=False, default=False, duration=envinfo[0], fps=envinfo[1], count=envinfo[2]) for _ in range(n_envs)])
     env = VecMonitor(env)
-    # if cnn: 
-    #     model = PPO("CnnPolicy", env, verbose=1, tensorboard_log="./ppo_2d_tensorboard/", device=device, 
-    #             learning_rate=1e-4,
-    #             clip_range=0.1,
-    #             ent_coef=0.01,
-    #             policy_kwargs=dict(normalize_images=False))
-    # else:
-    model = PPO("MlpPolicy", env, verbose=1, tensorboard_log="./ppo_2d_tensorboard/")
+
+    model = PPO(
+        "MlpPolicy", 
+        env, 
+        verbose=1, 
+        tensorboard_log="./ppo_2d_tensorboard/",
+        ent_coef=0.005,
+    )
     model.learn(total_timesteps=total_timesteps, tb_log_name=model_name,
                 callback=CheckpointCallback(save_freq=5000, save_path='occupancypipe/models/', name_prefix=model_name))
  
