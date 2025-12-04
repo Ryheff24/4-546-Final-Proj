@@ -230,3 +230,4 @@ scripts/random_agent.py
 ppo_2d_tensorboard
 occupancypipe/videos
 .DS_Store
+environments.json
