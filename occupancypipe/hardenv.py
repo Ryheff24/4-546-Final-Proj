@@ -97,9 +97,9 @@ class harderEnv(gym.Env):
         self.distances = self.precompute_distances(cores=cores, filename=distFile)
         self.prev_distance = self.distances[0, self.start[0], self.start[1]]
     
-    def precompute_distances(self, cores, filename, overWrite=True):
+    def precompute_distances(self, cores, filename, load=True):
         """compute distance, this is multhreaded based on number of cores"""
-        if not overWrite:
+        if load:
             if os.path.exists(filename):
                 print(f"Loading precomputed distance map from {filename}")
                 file = torch.load(filename, map_location=self.device)
@@ -357,7 +357,7 @@ class Envs():
         self.default = {
             'video_path': f"occupancypipe/videos/video_9489441.npy",
             'processed_frames_path': "occupancypipe/frames/processed_frames.npy",
-            # 'calibration_frame_path': "occupancypipe/frames/calibration_frame.npy",
+            'calibration_frame_path': "occupancypipe/frames/calibration_frame.npy",
             'extent_frame_path': "occupancypipe/frames/extent.npy",
             'distances_path': "occupancypipe/hardenv_distance_map.pt",
             'processed': False,
@@ -386,7 +386,7 @@ class Envs():
         self.data[key] = {
             'video_path': f"occupancypipe/videos/video{duration}sec{fps}fps{count}.npy",
             'processed_frames_path': f"occupancypipe/frames/processed_frames_{duration}sec{fps}fps{count}.npy",
-            # 'calibration_frame_path': f"occupancypipe/frames/calibration_frame_{duration}x{fps}{count}.npy",
+            'calibration_frame_path': f"occupancypipe/frames/calibration_frame_{duration}x{fps}{count}.npy",
             'extent_frame_path': f"occupancypipe/frames/extent_{duration}sec{fps}fps{count}.npy",
             'distances_path': f"occupancypipe/hardenv_distance_map_{duration}s_{fps}fps_ct{count}.pt",
             'processed': False,
@@ -431,7 +431,8 @@ class Envs():
         if key in self.data:
             data = self.data[key]
             files_to_delete = [
-                data['frames_video_path'],
+                data['video_path'],
+                data['processed_frames_path'],
                 data['calibration_frame_path'],
                 data['extent_frame_path'],
                 data['distances_path']
@@ -522,24 +523,25 @@ class Envs():
         # np.save(f"occupancypipe/frames/processed_frames_{duration}sec{fps}fps{count}.npy", frames.cpu().numpy())
         # np.save(f"occupancypipe/frames/extent_{duration}sec{fps}fps{count}.npy", extent)
         
-        if data['processed'] and os.path.exists(data['processed_frames_path']) and os.path.exists(data['extent_path']) and os.path.exists(data['calibration_frame_path']):
+        if data['processed'] and os.path.exists(data['processed_frames_path']) and os.path.exists(data['extent_frame_path']):
             print("Processed frames already exist. Skipping preprocessing.")
             return
         from occupy import Kinect
         kinect = Kinect()
-        # calibrateframe = kinect.loadFrame(data['calibration_frame_path'], type='npy', view=False)
+        calibrateframe = kinect.loadFrame(data['calibration_frame_path'], type='npy', view=False)
         video = kinect.loadVideo(data['video_path'])
-        calibrateframe = video[0]
-        kinect.calibrate(calibrateframe) 
-    
-        frames, extent = kinect.createVideo(video, z_min_threshold=data["z_min_threshold"], z_max_threshold=data["z_max_threshold"], crop=data["crop"])
-        if fps == 5 and duration == 5:
-            frames = kinect.frameSkip(frames)
-            
+        if default:
+            kinect.calibrate(calibrateframe)
+            frames, extent = kinect.createVideo(video, z_min_threshold=data["z_min_threshold"], z_max_threshold=data["z_max_threshold"], crop=data["crop"])
+        else:
+            kinect.calibrate(calibrateframe, z_min_threshold=data["z_min_threshold"], z_max_threshold=data["z_max_threshold"])
+            frames, extent = kinect.createVideo(video, z_min_threshold=data["z_min_threshold"], z_max_threshold=data["z_max_threshold"], crop=data["crop"])
+            frames = [kinect.denoise(frame) for frame in frames]
+        
         frames = torch.from_numpy(np.stack(frames)).to(device=torch.device("cpu"), dtype=torch.float32)
         np.save(data['processed_frames_path'], frames.cpu().numpy())
         np.save(data['extent_frame_path'], extent)
-        self.data['processed'] = True
+        data['processed'] = True
         self.save()
 
         
