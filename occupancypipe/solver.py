@@ -33,7 +33,7 @@ def evaluate(envinfo, model_name,env_name="2d-occupancy", episodes=100, render=T
             rewardArr.append(rewards)
             if term or trunc:
                 break
-        if render and not ran: 
+        if render and not ran and rew > 200: 
             env.render(video=True)
             ran = True
         total_rewards.append(rew)
@@ -64,10 +64,10 @@ def retrain(envinfo, model_name, total_timesteps=1, n_envs=16, new=False):
     #             ent_coef=0.01,
     #             policy_kwargs=dict(normalize_images=False))
     # else:
-    model_name = model_name + "-retrained" if new else ""
-    model = PPO.load(model_name, env=env,
-            learning_rate=3e-5,
-            ent_coef=0.05)
+    model_name = model_name + "-retrained" if new else model_name
+    model = PPO.load(model_name if not new else model_name.replace("-retrained", ""), env=env,
+            learning_rate=1e-4,
+            ent_coef=0.01)
     model.learn(total_timesteps=total_timesteps, tb_log_name=f"2D_{model_name}_retrain",
                 callback=CheckpointCallback(save_freq=5000, save_path='occupancypipe/models/', name_prefix=model_name))
     model.save(model_name)
@@ -101,7 +101,7 @@ def train(envinfo, model_name, total_timesteps=1000000, n_envs=16, ):
     model.save(model_name)
 
     # del model # remove to demonstrate saving and loading
-    evaluate(model_name, plot=True)
+    evaluate(envinfo, model_name, plot=True)
 
 def main():
     print("You must select the environment by inserting the duration, fps, and count values used by the video file.")
@@ -125,6 +125,9 @@ def main():
         mode = input("Invalid mode. Enter mode (train, retrain, evaluate): ")
         
     if mode.lower() in ['evaluate', 'e', 'eval']:
+        retrained_count = input("how many times was the model retrained? (default 0): ")
+        if retrained_count != '' and int(retrained_count) > 0:
+            model_name += "-retrained" * int(retrained_count)
         evaluate(file, model_name, plot=True, render=True)
         return
     
@@ -143,6 +146,9 @@ def main():
         return
 
     if mode.lower() in ['retrain', 'r', 're']:
+        retrained_count = input("how many times was the model retrained? (default 0): ")
+        if retrained_count != '' and int(retrained_count) > 0:
+            model_name += "-retrained" * int(retrained_count)
         time_steps = input("Enter total timesteps to retrain( default 500000 ): ")
         new = input("Save as new model? (y/n): ")
         new = False if new.lower() in ['n', 'no'] else True

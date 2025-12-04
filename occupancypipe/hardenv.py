@@ -59,7 +59,7 @@ class harderEnv(gym.Env):
         #     device = torch.device("cuda")
         # else:
         device = torch.device("cpu")
-        print(f"env Using device: {device}")
+        # print(f"env Using device: {device}")
         self.device = device
         super().__init__()
         self.frames, self.extent = load_frames(self.device, default=default, duration=duration, fps=fps, count=count)
@@ -101,7 +101,7 @@ class harderEnv(gym.Env):
         """compute distance, this is multhreaded based on number of cores"""
         if load:
             if os.path.exists(filename):
-                print(f"Loading precomputed distance map from {filename}")
+                # print(f"Loading precomputed distance map from {filename}")
                 file = torch.load(filename, map_location=self.device)
                 if file.shape != self.frames.shape:
                     print(f"Distance map shape {file.shape} does not match frames shape {self.frames.shape}. Recomputing distances.")
@@ -180,11 +180,11 @@ class harderEnv(gym.Env):
         # deathpen = -25
         
         #NEW
-        timepen = -0.01
-        goalrew = 50
-        failedrew = -10
+        timepen = -0.02          
+        goalrew = 150                
+        failedrew = -40              
         distancepen = 1
-        deathpen = -5     
+        deathpen = -5   
         
         wallhit = 0
         obstaclehit = 0
@@ -582,19 +582,19 @@ if __name__ == "__main__":
     # envs.reset_env_files(default=False)
     duration = 5
     fps = 5
-    count = 13
+    count = 9
     crop = 1
     z_min_threshold = -1.8
     z_max_threshold = -0.5
-    for i in range(8, 14):
-        envs.add(duration=duration, fps=fps, count=i, z_min_threshold=z_min_threshold, z_max_threshold=z_max_threshold, crop=crop)
+    # for i in range(8, 14):
+        # envs.add(duration=duration, fps=fps, count=i, z_min_threshold=z_min_threshold, z_max_threshold=z_max_threshold, crop=crop)
 
     #     envs.reset_env_files(default=False, duration=5, fps=5, count=i)
     # # envs.add(duration=5, fps=5, count=7, z_min_threshold=-1.8, z_max_threshold=-0.5, crop=40)
     # envs.add(duration=duration, fps=fps, count=count, z_min_threshold=z_min_threshold, z_max_threshold=z_max_threshold, crop=crop)
     # envs.test(default=False, duration=duration, fps=fps, count=count)
     # envs.test(default=False, duration=5, fps=5, count=8)
-    # envs.test(default=False, duration=5, fps=5, count=9)
+    envs.test(default=False, duration=5, fps=5, count=9)
     # envs.test(default=False, duration=5, fps=5, count=10)
     # envs.test(default=False, duration=5, fps=5, count=11)
     # envs.test(default=False, duration=5, fps=5, count=12)
