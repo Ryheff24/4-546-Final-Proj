@@ -1,4 +1,5 @@
 from os import times
+from tabnanny import check
 import time
 from unittest import skip
 from flask import cli
@@ -8,6 +9,7 @@ multiprocessing.set_start_method('spawn', force=True)
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
+from stable_baselines3.common.callbacks import CheckpointCallback
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
@@ -52,7 +54,7 @@ def evaluate(envinfo, model_name,env_name="2d-occupancy", episodes=100, render=T
         plt.close('all')
     return avg
 
-def retrain(envinfo, model_name, total_timesteps=1, n_envs=16):
+def retrain(envinfo, model_name, total_timesteps=1, n_envs=16, new=False):
     env = SubprocVecEnv([lambda: harderEnv(torchMode=False, default=False, duration=envinfo[0], fps=envinfo[1], count=envinfo[2]) for _ in range(n_envs)])
     env = VecMonitor(env)
     # if cnn: 
@@ -62,12 +64,14 @@ def retrain(envinfo, model_name, total_timesteps=1, n_envs=16):
     #             ent_coef=0.01,
     #             policy_kwargs=dict(normalize_images=False))
     # else:
+    model_name = model_name + "-retrained" if new else ""
     model = PPO.load(model_name, env=env,
             learning_rate=3e-5,
             ent_coef=0.05)
-    model.learn(total_timesteps=total_timesteps, tb_log_name=f"2D_{model_name}_retrain")
-    model.save(model_name+"_retrained")
-    return model_name+"_retrained"
+    model.learn(total_timesteps=total_timesteps, tb_log_name=f"2D_{model_name}_retrain",
+                callback=CheckpointCallback(save_freq=5000, save_path='occupancypipe/models/', name_prefix=model_name))
+    model.save(model_name)
+    return model_name
 
 
 def train(envinfo, model_name, total_timesteps=1000000, n_envs=16, ):
@@ -91,7 +95,9 @@ def train(envinfo, model_name, total_timesteps=1000000, n_envs=16, ):
     #             policy_kwargs=dict(normalize_images=False))
     # else:
     model = PPO("MlpPolicy", env, verbose=1, tensorboard_log="./ppo_2d_tensorboard/")
-    model.learn(total_timesteps=total_timesteps, tb_log_name=f"{model_name}")
+    model.learn(total_timesteps=total_timesteps, tb_log_name=model_name,
+                callback=CheckpointCallback(save_freq=5000, save_path='occupancypipe/models/', name_prefix=model_name))
+ 
     model.save(model_name)
 
     # del model # remove to demonstrate saving and loading
@@ -138,8 +144,10 @@ def main():
 
     if mode.lower() in ['retrain', 'r', 're']:
         time_steps = input("Enter total timesteps to retrain( default 500000 ): ")
+        new = input("Save as new model? (y/n): ")
+        new = False if new.lower() in ['n', 'no'] else True
         total_timesteps = 500000 if time_steps == '' else int(time_steps)
-        retrain(file, model_name, n_envs=n_envs, total_timesteps=total_timesteps)
+        retrain(file, model_name, n_envs=n_envs, total_timesteps=total_timesteps, new=new)
         return
     
 if __name__ == "__main__":
