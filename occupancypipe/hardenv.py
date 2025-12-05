@@ -1,5 +1,6 @@
 import json
 import multiprocessing
+from flask.cli import F
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -40,8 +41,8 @@ def load_frames(device, default=True, duration=5, fps=5, count=4):
     else:
         frames = np.load(f"occupancypipe/frames/processed_frames_{duration}sec{fps}fps{count}.npy")
         extent = np.load(f"occupancypipe/frames/extent_{duration}sec{fps}fps{count}.npy")
-    frames = torch.from_numpy(frames).to(device=device, dtype=torch.float32)
-    return frames, extent
+    # frames = torch.from_numpy(frames).to(device=device, dtype=torch.float32)
+    return frames.astype(np.float32), extent
 # THE DEFAULT FRAME IS BROKEN DO NOT USE.
 class harderEnv(gym.Env):
     metadata = {'render.modes': ['human']}
@@ -52,14 +53,15 @@ class harderEnv(gym.Env):
         else:
             distFile= f"occupancypipe/hardenv_distance_map_{duration}s_{fps}fps_ct{count}.pt"
             
-        self.cnn = cnn
+        self.cnn = True
+        self.stack = 4
+        self.frame_stack = deque(maxlen=self.stack)
         # if torch.backends.mps.is_available():
         #     device = torch.device("mps")
         # elif torch.cuda.is_available():
         #     device = torch.device("cuda")
         # else:
         device = torch.device("cpu")
-        # print(f"env Using device: {device}")
         self.device = device
         super().__init__()
         self.frames, self.extent = load_frames(self.device, default=default, duration=duration, fps=fps, count=count)
@@ -67,8 +69,8 @@ class harderEnv(gym.Env):
         
         # self.kinect.videoPlayback(frames, extent=extent)
         self.start_grid = self.frames
-        self.grid = self.start_grid[0].clone()
-        self.end_grid = torch.zeros_like(self.start_grid).to(device)
+        self.grid = self.start_grid[0].copy()
+        self.end_grid = np.zeros_like(self.start_grid)
         self.size = self.grid.shape
         self.steps = 0
         self.extent = self.extent
@@ -79,11 +81,11 @@ class harderEnv(gym.Env):
         self.start = (0, self.grid.shape[1]//2)  # starting point - top center (row 0, middle column)
         self.agent_pos = self.start
         self.goal = (self.grid.shape[0]-1, self.grid.shape[1]//2)  # goal point - bottom center (last row, middle column)
-        self.grid[self.start] = 2 
+        self.grid[self.start] = 3
         self.grid[self.goal] = 2 
-        if cnn:
+        if self.cnn:
             self.observation_space = spaces.Box(low=0, high=1, 
-                shape=(1, self.grid.shape[0], self.grid.shape[1]), 
+                shape=(self.stack, self.grid.shape[0], self.grid.shape[1]), 
                 dtype=np.float32)
         else:
             self.observation_space = spaces.Box(low=0, high=1, shape=tuple(self.grid.shape), dtype=np.float32)
@@ -106,6 +108,7 @@ class harderEnv(gym.Env):
                 if file.shape != self.frames.shape:
                     print(f"Distance map shape {file.shape} does not match frames shape {self.frames.shape}. Recomputing distances.")
                 else:
+                    file = file.numpy()
                     return file
             else:
                 print(f"Distance map file {filename} not found. Computing distances.")
@@ -127,7 +130,7 @@ class harderEnv(gym.Env):
             print(f"Finished computing distances for {frame_count} frames")
         else:
             for i, frame in enumerate(self.frames):
-                grid = frame.clone()
+                grid = frame.copy()
                 visited = torch.full(grid.shape, -1, dtype=torch.float32)
                 queue = deque([self.goal])
                 visited[self.goal] = 0
@@ -156,10 +159,10 @@ class harderEnv(gym.Env):
 
     def step(self, actions):
 
-        if isinstance(actions, np.ndarray):
-            actions = torch.from_numpy(actions).to(device=self.device, dtype=torch.long)
-        else:
-            actions = actions.long()
+        # if isinstance(actions, np.ndarray):
+        #     actions = torch.from_numpy(actions).to(device=self.device, dtype=torch.long)
+        # else:
+        #     actions = actions.long()
         # Accept either a single action (int) or a sequence of actions
         
         reward = 0.0
@@ -180,15 +183,16 @@ class harderEnv(gym.Env):
         # deathpen = -25
         
         #NEW
-        timepen = -0.02          
+        timepen = -0.02
         goalrew = 150                
         failedrew = -40              
-        distancepen = 1
-        deathpen = -5   
+        distancepen = 2.0
+        deathpen = -50
         
         wallhit = 0
         obstaclehit = 0
         dead = False
+        start_step_distance = self.distances[self.steps, self.agent_pos[0], self.agent_pos[1]]
         # print(f"Processing {len(actions)} actions at step {self.steps}")
         for action in actions:
             steps_taken += 1
@@ -200,12 +204,12 @@ class harderEnv(gym.Env):
                 #up
                 if self.agent_pos[0] <= 0:
                     # above is wall
-                    # wallhit += 1
+                    wallhit += 1
                     dead = True
                     break
                 elif self.grid[self.agent_pos[0]-1, self.agent_pos[1]] == 1:
                     # above is obstacle
-                    # obstaclehit += 1
+                    obstaclehit += 1
                     dead = True
                     break
                 else:
@@ -222,12 +226,12 @@ class harderEnv(gym.Env):
                 # down
                 if self.agent_pos[0] >= self.grid.shape[0]-1:
                     # below is wall
-                    # wallhit += 1
+                    wallhit += 1
                     dead = True
                     break
                 elif self.grid[self.agent_pos[0]+1, self.agent_pos[1]] == 1:
                     # below is obstacle
-                    # obstaclehit += 1
+                    obstaclehit += 1
                     dead = True
                     break
                 else:
@@ -285,31 +289,32 @@ class harderEnv(gym.Env):
                         self.goalhit = True
                         break
 
-        cur_distance = self.distances[self.steps, self.agent_pos[0], self.agent_pos[1]]
+        end_step_distance = self.distances[self.steps, self.agent_pos[0], self.agent_pos[1]]
+        distance_reward = start_step_distance - end_step_distance
+
         # Ensure start and goal markers remain
         self.grid[self.start] = 2
         self.grid[self.goal] = 2
         # self.gridhistory.append(self.grid.clone())
         
         # print(f"len start gridhistory: {len(self.gridhistory)} current step: {self.steps}")
-        self.end_grid[self.steps].copy_(self.grid)
-        self.grid = self.start_grid[self.steps].clone()
+        self.end_grid[self.steps] = self.grid
+        self.grid = self.start_grid[self.steps].copy()
         # print(f"shape grid: {self.grid.shape} at step {self.steps}")
         self.steps += 1 
         if dead:
             reward += deathpen
+            reward += distance_reward * distancepen  
             # print(f"Agent died at step {self.steps}!")
             self.terminated = True
         elif self.goalhit:
             reward += goalrew
+            reward += distance_reward * distancepen  
             self.terminated = True
             print(f"Goal hit at step {self.steps}!")
             
         else: 
-            # calc distance
-            diff = self.prev_distance - cur_distance
-            reward += diff * distancepen
-            self.prev_distance = cur_distance
+            reward += distance_reward * distancepen
 
         # print(f"steps_taken: {steps_taken}, wallhit: {wallhit}, obstaclehit: {obstaclehit}")
         # reward = reward + (steps_taken * timepen + wallhit * wallpen + obstaclehit * obstaclepen)
@@ -320,44 +325,56 @@ class harderEnv(gym.Env):
             # print(f"Max steps reached: {self.steps} >= {self.max_steps}")
             if not self.goalhit:
                 reward += failedrew
-                
+        self.grid[self.agent_pos] = 3  # current position
+        self.grid[self.goal] = 2
+        self.frame_stack.append(self.grid.copy())
         # print(f"steps_taken: {steps_taken}, total steps: {self.steps}, reward: {reward}, goalhit: {self.goalhit}, wallhit: {wallhit}, obstaclehit: {obstaclehit}, truncated: {self.truncated}, terminated: {self.terminated}")
         return self._obs(), float(reward), self.terminated, self.truncated, {'goal_hit': self.goalhit, 'wall_hits': wallhit, 'obstacle_hits': obstaclehit, 'steps_taken': steps_taken}
 
 
     def reset(self, *, seed=None, options=None):
-        self.grid = self.start_grid[0].clone()
-        self.end_grid.zero_()
+        self.grid = self.start_grid[0].copy()
+        self.end_grid.fill(0)
         self.steps = 0
         self.agent_pos = self.start
+        self.grid[self.start] = 3
+        self.grid[self.goal] = 2
         self.path_positions = [self.start]
         self.truncated = False
         self.terminated = False
         self.goalhit = False
         self.prev_distance = self.distances[0, self.start[0], self.start[1]]
+        self.frame_stack.clear()
+        for _ in range(self.stack):
+            self.frame_stack.append(self.grid.copy())
+
         return self._obs(), {}
     
-    def render(self, video=False, save_path=None, block=True):
+    def render(self, video=False):
         from occupy import Kinect
         kinect = Kinect()
         if video:
-            print(self.steps)
-            kinect.videoPlayback(self.end_grid.detach().cpu().numpy(), extent=self.extent, steps=self.steps)
+            kinect.videoPlayback(self.end_grid, extent=self.extent, steps=self.steps)
         else:
             if self.steps == 0:
-                kinect.printgrid(self.start_grid[0].detach().cpu().numpy(), self.extent, "random_agent_initial")
+                kinect.printgrid(self.start_grid[0], self.extent, "random_agent_initial")
             else:
-                kinect.printgrid(self.end_grid[self.steps].detach().cpu().numpy(), self.extent, "random_agent_initial")
+                kinect.printgrid(self.end_grid[self.steps], self.extent, "random_agent_initial")
         
     def _obs(self):
-        if self.torchMode:
-            obs = self.grid.clone()
-            if self.cnn:
-                obs = obs.unsqueeze(0)
+        # if self.torchMode:
+        #     obs = self.grid.clone()
+        #     if self.cnn:
+        #         obs = obs.unsqueeze(0)
+        # else:
+        #     obs = self.grid.clone().cpu().numpy()
+        #     if self.cnn:
+        #         obs = np.expand_dims(obs, axis=0)
+        if self.cnn:
+            obs = np.stack(list(self.frame_stack), axis=0)
+            obs = torch.from_numpy(obs)
         else:
-            obs = self.grid.clone().cpu().numpy()
-            if self.cnn:
-                obs = np.expand_dims(obs, axis=0)
+            obs = self.grid
         return obs
 
 class Envs():
@@ -594,7 +611,7 @@ if __name__ == "__main__":
     # envs.add(duration=duration, fps=fps, count=count, z_min_threshold=z_min_threshold, z_max_threshold=z_max_threshold, crop=crop)
     # envs.test(default=False, duration=duration, fps=fps, count=count)
     # envs.test(default=False, duration=5, fps=5, count=8)
-    envs.test(default=False, duration=5, fps=5, count=9)
+    envs.test(default=False, duration=5, fps=5, count=13)
     # envs.test(default=False, duration=5, fps=5, count=10)
     # envs.test(default=False, duration=5, fps=5, count=11)
     # envs.test(default=False, duration=5, fps=5, count=12)

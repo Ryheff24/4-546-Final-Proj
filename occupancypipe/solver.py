@@ -14,11 +14,23 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 from hardenv import harderEnv
-    
+# if not cnn:
+#     device = torch.device("cpu")
+# else:
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+# print(f"SOLVER Using device: {device}")
+policy = "CnnPolicy" #"MlpPolicy"
 def evaluate(envinfo, model_name,env_name="2d-occupancy", episodes=100, render=True, plot=False):# -> list:
 
     env= harderEnv(torchMode=False, default=False, duration=envinfo[0], fps=envinfo[1], count=envinfo[2])
-    model = PPO.load(model_name, env=env)
+    model = PPO.load(model_name, env=env, policy_kwargs=dict(normalize_images=False), device=device,
+                learning_rate=1e-4,
+                batch_size=512,)
     total_rewards = []
     rewardsOverEps = []
     ran = False
@@ -33,7 +45,7 @@ def evaluate(envinfo, model_name,env_name="2d-occupancy", episodes=100, render=T
             rewardArr.append(rewards)
             if term or trunc:
                 break
-        if render and not ran and rew > 200: 
+        if render and not ran and rew > -47.7: 
             env.render(video=True)
             ran = True
         total_rewards.append(rew)
@@ -54,7 +66,7 @@ def evaluate(envinfo, model_name,env_name="2d-occupancy", episodes=100, render=T
         plt.close('all')
     return avg
 
-def retrain(envinfo, model_name, total_timesteps=1, n_envs=16, new=False):
+def retrain(envinfo, model_name, total_timesteps=1, n_envs=6, new=False):
     env = SubprocVecEnv([lambda: harderEnv(torchMode=False, default=False, duration=envinfo[0], fps=envinfo[1], count=envinfo[2]) for _ in range(n_envs)])
     env = VecMonitor(env)
     # if cnn: 
@@ -67,7 +79,9 @@ def retrain(envinfo, model_name, total_timesteps=1, n_envs=16, new=False):
     model_name = model_name + "-retrained" if new else model_name
     model = PPO.load(model_name if not new else model_name.replace("-retrained", ""), env=env,
             learning_rate=1e-4,
-            ent_coef=0.01)
+            batch_size=512,
+            policy_kwargs=dict(normalize_images=False),
+            device=device)
     model.learn(total_timesteps=total_timesteps, tb_log_name=f"2D_{model_name}_retrain",
                 callback=CheckpointCallback(save_freq=5000, save_path='occupancypipe/models/', name_prefix=model_name))
     model.save(model_name)
@@ -75,25 +89,20 @@ def retrain(envinfo, model_name, total_timesteps=1, n_envs=16, new=False):
 
 
 def train(envinfo, model_name, total_timesteps=1000000, n_envs=16, ):
-    # if not cnn:
-    #     device = torch.device("cpu")
-    # else:
-    #     if torch.backends.mps.is_available():
-    #         device = torch.device("mps")
-    #     elif torch.cuda.is_available():
-    #         device = torch.device("cuda")
-    #     else:
-    device = torch.device("cpu")
+
         
     env = SubprocVecEnv([lambda: harderEnv(torchMode=False, default=False, duration=envinfo[0], fps=envinfo[1], count=envinfo[2]) for _ in range(n_envs)])
     env = VecMonitor(env)
 
     model = PPO(
-        "MlpPolicy", 
+        policy, 
         env, 
+        device=device,
         verbose=1, 
         tensorboard_log="./ppo_2d_tensorboard/",
-        ent_coef=0.005,
+        policy_kwargs=dict(normalize_images=False),
+        learning_rate=1e-4,
+        batch_size=512,
     )
     model.learn(total_timesteps=total_timesteps, tb_log_name=model_name,
                 callback=CheckpointCallback(save_freq=5000, save_path='occupancypipe/models/', name_prefix=model_name))

@@ -13,6 +13,8 @@ import time
 from scipy import ndimage
 from queue import Queue
 import freenect2
+import cv2
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 # Fixing the queue of hte freenect2 library to avoid blocking on full queue
 class FixedQueueFrameListener:
@@ -342,23 +344,61 @@ class Kinect:
         # print(frames[1].shape)
         return frames, extent
 
-    def videoPlayback(self, frames, extent, steps=None):  
-        plt.ion()
-        fig, ax = plt.subplots()
-        img = plt.imshow(frames[0], cmap='binary', origin='upper', extent=extent)
-        ax.set_xlabel('X (meters)')
-        ax.set_ylabel('Y (meters)')
-        ax.set_title('2D Occupancy Grid(Black is Occupied)')
+    def videoPlayback(self, frames, extent, steps=None):
+        # Create figure with fixed DPI for consistent sizing
+        fig, ax = plt.subplots(figsize=(8, 8), dpi=100)
+
+        # Process and denoise first frame
+        first_frame = self.denoise(frames[0])
+        img = plt.imshow(first_frame, cmap='binary', origin='upper', extent=extent)
+        ax.set_xticks([])
+        ax.set_yticks([])
         plt.tight_layout()
-        fig.canvas.draw()
-        for frame in frames[1:None if steps is None else steps]:
+
+        # Draw once to get accurate dimensions
+        canvas = FigureCanvasAgg(fig)
+        canvas.draw()
+
+        # Get dimensions from rendered canvas
+        width, height = canvas.get_width_height()
+        print(f"Video dimensions: {width}x{height}")
+
+        # Setup video writer with H.264 codec
+        output_file = f"{self.inputdir}/occupancy_video.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*'avc1')
+        video_writer = cv2.VideoWriter(output_file, fourcc, 10.0, (width, height))
+
+        if not video_writer.isOpened():
+            print("Trying alternative codec...")
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            video_writer = cv2.VideoWriter(output_file, fourcc, 10.0, (width, height))
+
+        if not video_writer.isOpened():
+            print("Error: Could not open video writer")
+            plt.close(fig)
+            return
+
+        # Write first frame
+        buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
+        img_array = buf.reshape(height, width, 4)[:, :, :3]
+        img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+        video_writer.write(img_bgr)
+
+        # Write remaining frames
+        for i, frame in enumerate(frames[1:None if steps is None else steps]):
             frame = self.denoise(frame)
             img.set_data(frame)
-            fig.canvas.draw()
-            plt.pause(0.1)
-            
+            canvas.draw()
+            buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
+            img_array = buf.reshape(height, width, 4)[:, :, :3]
+            img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+            video_writer.write(img_bgr)
+            if (i + 1) % 10 == 0:
+                print(f"Processed {i + 1}/{len(frames)-1} frames")
 
-            # printgrid(occupancy_grid, extent, f"VideoFrame_{i}")
+        video_writer.release()
+        plt.close(fig)
+        print(f"Video saved to {output_file}")
 
     def getZRange(self):
         points = self.takeSingleFrame(view=False)
@@ -378,10 +418,10 @@ def run( record=False,convert=True, playback=True,  duration=10, fps=5, count=4)
         kinect.saveNPY(video[0], filename=f"calibration_frame_{duration}x{fps}{count}.npy")
         calibration_frame = video[0]
     if convert:#
-        # OG value:
-        z_min_threshold=-1.9, 
-        z_max_threshold=-0.5
-        crop = 1
+        # # OG value:
+        # z_min_threshold=-1.9, 
+        # z_max_threshold=-0.5
+        # crop = 1
         
         # count 4 - 7
         # z_min_threshold = -2.8
@@ -389,23 +429,23 @@ def run( record=False,convert=True, playback=True,  duration=10, fps=5, count=4)
         # crop = 40
         
         # values for > 7
-        # z_min_threshold=-1.8
-        # z_max_threshold=-0.5
-        # crop = 1
-        # video = kinect.loadVideo(f"occupancypipe/videos/video{duration}sec{fps}fps{count}.npy")
-        video = kinect.loadVideo(f"occupancypipe/videos/video_9489441.npy")
+        z_min_threshold=-1.9
+        z_max_threshold=-0.5
+        crop = 1
+        video = kinect.loadVideo(f"occupancypipe/videos/video{duration}sec{fps}fps{count}.npy")
+        # video = kinect.loadVideo(f"occupancypipe/videos/video_9489441.npy")
         calibration_frame = video[0]
         # calibration_frame = kinect.loadFrame(f"occupancypipe/frames/calibration_frame_{duration}x{fps}{count}.npy", type='npy', view=False)
         kinect.calibrate(calibration_frame, 
-                        #  z_min_threshold=z_min_threshold, z_max_threshold=z_max_threshold
+                         z_min_threshold=z_min_threshold, z_max_threshold=z_max_threshold
                          )
 
         frames_5x5, extent_5x5 = kinect.createVideo(
             video, 
-            # z_min_threshold=z_min_threshold, 
-            # z_max_threshold=z_max_threshold,
+            z_min_threshold=z_min_threshold, 
+            z_max_threshold=z_max_threshold,
             crop=crop,
-            grid_resolution=0.02
+            grid_resolution=0.01
             )
         print("shape: ", np.array(frames_5x5).shape)
         kinect.videoPlayback(frames_5x5, extent_5x5)
@@ -413,9 +453,9 @@ def run( record=False,convert=True, playback=True,  duration=10, fps=5, count=4)
 
 
 if __name__ == "__main__":
-    time.sleep(5)
+    # time.sleep(5)
     # run(record=False, convert=True, playback=True, duration=5, fps=5, count=4) # 4 is medium difficulty
     # run(record=False, convert=True, playback=True, duration=5, fps=5, count=5) # 5 is easy
     # run(record=False, convert=True, playback=True, duration=5, fps=5, count=6) # 6 is hard
     
-    run(record=False, convert=True, playback=False, duration=5, fps=5, count=5) # new
+    run(record=False, convert=True, playback=False, duration=5, fps=5, count=13) # new
