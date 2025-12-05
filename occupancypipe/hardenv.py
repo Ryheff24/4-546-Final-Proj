@@ -90,7 +90,6 @@ class harderEnv(gym.Env):
         else:
             self.observation_space = spaces.Box(low=0, high=1, shape=tuple(self.grid.shape), dtype=np.float32)
             
-        # keep a sequence of visited positions for rendering the path
         
         self.path_positions = [self.start]
         self.gridhistory = []

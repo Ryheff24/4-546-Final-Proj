@@ -89,14 +89,14 @@ class Kinect:
             
             for type_, frame in device:
                 if type_ == FrameType.Depth:
-                    # Convert to point cloud INSIDE the context while frame is valid
+                    # Convert to point cloud INSIDE deice while frame is validdddaf
                     points = device.registration.get_points_xyz_array(frame)
                     reshape = points.reshape(-1, 3)
                     points = self.transform1(reshape)
                     pcd.points = o3d.utility.Vector3dVector(points)
                     pcd.remove_non_finite_points()
                     
-                    # Make a copy of the points array
+                    # rm torch stuff
                     arr.append(np.asarray(pcd.points).copy())
                     
                     if playback:
@@ -345,46 +345,39 @@ class Kinect:
         return frames, extent
 
     def videoPlayback(self, frames, extent, steps=None):
-        # Create figure with fixed DPI for consistent sizing
         fig, ax = plt.subplots(figsize=(8, 8), dpi=100)
 
-        # Process and denoise first frame
         first_frame = self.denoise(frames[0])
         img = plt.imshow(first_frame, cmap='binary', origin='upper', extent=extent)
         ax.set_xticks([])
         ax.set_yticks([])
         plt.tight_layout()
 
-        # Draw once to get accurate dimensions
         canvas = FigureCanvasAgg(fig)
         canvas.draw()
 
-        # Get dimensions from rendered canvas
         width, height = canvas.get_width_height()
         print(f"Video dimensions: {width}x{height}")
 
-        # Setup video writer with H.264 codec
         output_file = f"{self.inputdir}/occupancy_video.mp4"
         fourcc = cv2.VideoWriter_fourcc(*'avc1')
         video_writer = cv2.VideoWriter(output_file, fourcc, 10.0, (width, height))
 
         if not video_writer.isOpened():
-            print("Trying alternative codec...")
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             video_writer = cv2.VideoWriter(output_file, fourcc, 10.0, (width, height))
 
         if not video_writer.isOpened():
-            print("Error: Could not open video writer")
             plt.close(fig)
             return
 
-        # Write first frame
+        # need first frame
         buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
         img_array = buf.reshape(height, width, 4)[:, :, :3]
         img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
         video_writer.write(img_bgr)
 
-        # Write remaining frames
+        # 
         for i, frame in enumerate(frames[1:None if steps is None else steps]):
             frame = self.denoise(frame)
             img.set_data(frame)

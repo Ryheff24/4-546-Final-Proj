@@ -45,7 +45,7 @@ def evaluate(envinfo, model_name,env_name="2d-occupancy", episodes=100, render=T
             rewardArr.append(rewards)
             if term or trunc:
                 break
-        if render and not ran and rew > -47.7: 
+        if render and not ran and rew > 300: 
             env.render(video=True)
             ran = True
         total_rewards.append(rew)
@@ -78,22 +78,23 @@ def retrain(envinfo, model_name, total_timesteps=1, n_envs=6, new=False):
     # else:
     model_name = model_name + "-retrained" if new else model_name
     model = PPO.load(model_name if not new else model_name.replace("-retrained", ""), env=env,
-            learning_rate=1e-4,
+            learning_rate=1e-5,
             batch_size=512,
             policy_kwargs=dict(normalize_images=False),
             device=device)
     model.learn(total_timesteps=total_timesteps, tb_log_name=f"2D_{model_name}_retrain",
-                callback=CheckpointCallback(save_freq=5000, save_path='occupancypipe/models/', name_prefix=model_name))
+                callback=CheckpointCallback(save_freq=2048, save_path='occupancypipe/models/', name_prefix=model_name))
     model.save(model_name)
     return model_name
 
 
-def train(envinfo, model_name, total_timesteps=1000000, n_envs=16, ):
+def train(envinfo, model_name, total_timesteps=1000000, n_envs=24, ):
 
         
     env = SubprocVecEnv([lambda: harderEnv(torchMode=False, default=False, duration=envinfo[0], fps=envinfo[1], count=envinfo[2]) for _ in range(n_envs)])
     env = VecMonitor(env)
 
+    n_steps = 2048 
     model = PPO(
         policy, 
         env, 
@@ -101,11 +102,11 @@ def train(envinfo, model_name, total_timesteps=1000000, n_envs=16, ):
         verbose=1, 
         tensorboard_log="./ppo_2d_tensorboard/",
         policy_kwargs=dict(normalize_images=False),
-        learning_rate=1e-4,
+        learning_rate=3e-5,
         batch_size=512,
     )
     model.learn(total_timesteps=total_timesteps, tb_log_name=model_name,
-                callback=CheckpointCallback(save_freq=5000, save_path='occupancypipe/models/', name_prefix=model_name))
+                callback=CheckpointCallback(save_freq=2048, save_path='occupancypipe/models/', name_prefix=model_name))
  
     model.save(model_name)
 
@@ -123,7 +124,7 @@ def main():
     fps = 5 if fps == '' else int(fps)
     
     count = input("Enter count (difficulty level): ")
-    count = 8 if count == '' else int(count)
+    count = 13 if count == '' else int(count)
     # filename = 
     # filename = input("Enter a name to save the model: ")
     model_name = f"{duration}-{fps}-{count}"
@@ -144,7 +145,7 @@ def main():
     #     model_type = input("Invalid model type. Enter model type (cnn, mlp): ")
     # model_name = f"{filename}"
     envcount = input("Enter number(n) of envs(0 >= n <= 32): ")
-    envs = 16 if envcount == '' else int(envcount)
+    envs = 24 if envcount == '' else int(envcount)
     while envs < 1 or envs > 32:
         envs = int(input("Invalid number of envs. Enter number(n) of envs(0 >= n <= 32): "))
         
